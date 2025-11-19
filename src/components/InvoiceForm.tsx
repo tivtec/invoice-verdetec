@@ -28,6 +28,7 @@ const invoiceSchema = z.object({
   paymentMethod: z.string().min(1, 'Campo obrigatório'),
   clientRepresentative: z.string().default('Rafael Hermes'),
   clientPosition: z.string().default('Verdetec - Sales Manager'),
+  notes: z.string().optional(),
 });
 
 type InvoiceFormData = z.infer<typeof invoiceSchema>;
@@ -109,6 +110,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
       clientPosition: data.clientPosition,
+      notes: data.notes,
     };
 
     saveInvoice(invoiceData);
@@ -148,6 +150,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
       clientPosition: data.clientPosition,
+      notes: data.notes,
     };
     setShowPreview(true);
   };
@@ -177,6 +180,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
       clientPosition: data.clientPosition,
+      notes: data.notes,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
@@ -361,6 +365,17 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             <div className="flex justify-end font-bold text-lg mt-2">
               Total: ${subtotal.toFixed(2)}
             </div>
+          </div>
+
+          <h3 className="font-semibold text-lg mt-6">Observações (Opcional)</h3>
+          
+          <div>
+            <Label>Notas</Label>
+            <Textarea 
+              {...register('notes')} 
+              placeholder="Adicione observações que aparecerão no rodapé da invoice (opcional)"
+              rows={3}
+            />
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Aprovação do Cliente</h3>

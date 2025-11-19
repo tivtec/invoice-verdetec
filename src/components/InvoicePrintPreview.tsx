@@ -122,19 +122,25 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
             </div>
           </div>
 
+          {/* Notes Section */}
+          {invoice.notes && (
+            <div className="mt-8">
+              <h3 className="font-semibold mb-2">Note:</h3>
+              <p className="text-sm whitespace-pre-wrap">{invoice.notes}</p>
+            </div>
+          )}
+
           {/* Signature Area */}
           <div className="mt-12 pt-8 border-t">
             <h3 className="font-semibold mb-8">Client Approval:</h3>
             <div className="grid grid-cols-2 gap-8 mt-16">
               <div className="text-center">
                 <div className="border-t border-foreground pt-2">
-                  <p className="text-sm">(Company Representative)</p>
                   <p className="font-semibold">{invoice.clientRepresentative}</p>
                 </div>
               </div>
               <div className="text-center">
                 <div className="border-t border-foreground pt-2">
-                  <p className="text-sm">(client&apos;s position)</p>
                   <p className="font-semibold">{invoice.clientPosition}</p>
                 </div>
               </div>

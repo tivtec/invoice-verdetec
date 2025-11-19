@@ -40,6 +40,9 @@ export interface Invoice {
   clientRepresentative: string;
   clientPosition: string;
   
+  // Notes
+  notes?: string;
+  
   createdAt: string;
   updatedAt: string;
 }
