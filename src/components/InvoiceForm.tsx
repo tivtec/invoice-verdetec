@@ -26,8 +26,8 @@ const invoiceSchema = z.object({
   modeOfTransport: z.string().min(1, 'Campo obrigatório'),
   availability: z.string().min(1, 'Campo obrigatório'),
   paymentMethod: z.string().min(1, 'Campo obrigatório'),
-  clientRepresentative: z.string().default('Rafael Hermes'),
-  clientPosition: z.string().default('Verdetec - Sales Manager'),
+  clientRepresentative: z.string().min(1, 'Campo obrigatório'),
+  clientPosition: z.string().default('Rafael Hermes'),
   notes: z.string().optional(),
 });
 
@@ -50,8 +50,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     defaultValues: invoice || {
       companyType: 'equipamentos',
       paymentMethod: '100% PRIOR TO SHIPPING.',
-      clientRepresentative: 'Rafael Hermes',
-      clientPosition: 'Verdetec - Sales Manager',
+      clientPosition: 'Rafael Hermes',
     }
   });
 
@@ -382,12 +381,13 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
           
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Representante</Label>
+              <Label>Nome do Cliente *</Label>
               <Input {...register('clientRepresentative')} />
+              {errors.clientRepresentative && <span className="text-sm text-destructive">{errors.clientRepresentative.message}</span>}
             </div>
 
             <div>
-              <Label>Posição do Cliente</Label>
+              <Label>Representante da Verdetec</Label>
               <Input {...register('clientPosition')} />
             </div>
           </div>
