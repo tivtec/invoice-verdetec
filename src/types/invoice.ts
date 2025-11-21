@@ -38,7 +38,9 @@ export interface Invoice {
   
   // Signature
   clientRepresentative: string;
+  clientCompanyPosition: string;
   clientPosition: string;
+  clientPositionTitle: string;
   
   // Notes
   notes?: string;
