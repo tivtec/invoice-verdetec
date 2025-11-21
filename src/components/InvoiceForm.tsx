@@ -27,7 +27,9 @@ const invoiceSchema = z.object({
   availability: z.string().min(1, 'Campo obrigatório'),
   paymentMethod: z.string().min(1, 'Campo obrigatório'),
   clientRepresentative: z.string().min(1, 'Campo obrigatório'),
+  clientCompanyPosition: z.string().min(1, 'Campo obrigatório'),
   clientPosition: z.string().default('Rafael Hermes'),
+  clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
 });
 
@@ -51,6 +53,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       companyType: 'equipamentos',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
+      clientPositionTitle: 'VERDETEC SALES MANAGER',
     }
   });
 
@@ -108,7 +111,9 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       availability: data.availability,
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
+      clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: data.clientPosition,
+      clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
     };
 
@@ -148,7 +153,9 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       availability: data.availability,
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
+      clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: data.clientPosition,
+      clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
     };
     setShowPreview(true);
@@ -178,7 +185,9 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       availability: data.availability,
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
+      clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: data.clientPosition,
+      clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
     };
     
@@ -389,6 +398,17 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             <div>
               <Label>Representante da Verdetec</Label>
               <Input {...register('clientPosition')} />
+            </div>
+
+            <div>
+              <Label>Cargo e Empresa do Cliente *</Label>
+              <Input {...register('clientCompanyPosition')} />
+              {errors.clientCompanyPosition && <span className="text-sm text-destructive">{errors.clientCompanyPosition.message}</span>}
+            </div>
+
+            <div>
+              <Label>Cargo do Representante Verdetec</Label>
+              <Input {...register('clientPositionTitle')} />
             </div>
           </div>
         </div>

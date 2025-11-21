@@ -1,6 +1,7 @@
 import { Invoice, COMPANY_DATA } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
+import verdetecLogo from '@/assets/verdetec-logo.png';
 
 interface InvoicePrintPreviewProps {
   invoice: Invoice;
@@ -15,6 +16,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
   const company = COMPANY_DATA[invoice.companyType];
   const totalWeight = invoice.items.reduce((sum, item) => sum + item.weight, 0);
   const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
+  const logoColor = invoice.companyType === 'insumos' ? '#104444' : '#EC6D1D';
 
   return (
     <div className="min-h-screen bg-muted">
@@ -28,55 +30,68 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
       </div>
 
       <div className="print:p-0 p-8">
-        <div className="bg-background w-[210mm] mx-auto p-[20mm] print:shadow-none shadow-lg" style={{ minHeight: '297mm' }}>
-          {/* Header */}
-          <div className="text-center mb-6">
-            <h1 className="text-3xl font-bold">PROFORMA INVOICE</h1>
+        <div className="bg-background w-[210mm] mx-auto p-[15mm] print:shadow-none shadow-lg" style={{ minHeight: '297mm' }}>
+          {/* Header with Logo */}
+          <div className="flex justify-between items-start mb-4">
+            <img 
+              src={verdetecLogo} 
+              alt="Verdetec Logo" 
+              className="h-10"
+              style={{ 
+                filter: invoice.companyType === 'insumos' 
+                  ? 'brightness(0) saturate(100%) invert(16%) sepia(28%) saturate(1745%) hue-rotate(137deg) brightness(92%) contrast(95%)'
+                  : 'brightness(0) saturate(100%) invert(43%) sepia(89%) saturate(1721%) hue-rotate(4deg) brightness(99%) contrast(91%)'
+              }}
+            />
+            <div className="text-center flex-1">
+              <h1 className="text-2xl font-bold">PROFORMA INVOICE</h1>
+            </div>
+            <div className="w-10"></div>
           </div>
 
           {/* Supplier and Invoice Info */}
-          <div className="grid grid-cols-2 gap-8 mb-6">
+          <div className="grid grid-cols-2 gap-6 mb-4">
             <div>
-              <h3 className="font-semibold mb-2">Supplier / Exporter:</h3>
-              <p className="font-bold">{company.name}</p>
-              <p>CNPJ: {company.cnpj}</p>
-              <p>{company.address}</p>
-              <p>ZIP Code: {company.zipCode}</p>
-              <p>Phone: {company.phone}</p>
-              <p>Country of Origin: Brazil</p>
+              <h3 className="font-semibold mb-1 text-sm">Supplier / Exporter:</h3>
+              <p className="font-bold text-sm">{company.name}</p>
+              <p className="text-xs">CNPJ: {company.cnpj}</p>
+              <p className="text-xs">{company.address}</p>
+              <p className="text-xs">ZIP Code: {company.zipCode}</p>
+              <p className="text-xs">Phone: {company.phone}</p>
+              <p className="text-xs">Country of Origin: Brazil</p>
             </div>
             
             <div className="text-right">
-              <p><span className="font-semibold">Invoice No.:</span> {invoice.invoiceNumber}</p>
-              <p><span className="font-semibold">Issue Date:</span> {invoice.issueDate}</p>
-              <p><span className="font-semibold">Place of Issue:</span> {invoice.placeOfIssue}</p>
+              <p className="text-xs"><span className="font-semibold">Invoice No.:</span> {invoice.invoiceNumber}</p>
+              <p className="text-xs"><span className="font-semibold">Issue Date:</span> {invoice.issueDate}</p>
+              <p className="text-xs"><span className="font-semibold">Place of Issue:</span> {invoice.placeOfIssue}</p>
             </div>
           </div>
 
           {/* Importer and Terms */}
-          <div className="grid grid-cols-2 gap-8 mb-6">
+          <div className="grid grid-cols-2 gap-6 mb-4">
             <div>
-              <h3 className="font-semibold mb-2">Importer / Buyer:</h3>
-              <p className="font-bold">{invoice.importerCompanyName}</p>
-              <p>{invoice.importerTaxId}</p>
-              <p>{invoice.importerAddress}</p>
-              <p>Zip Code: {invoice.importerZipCode}</p>
-              <p>Phone: {invoice.importerPhone}</p>
-              <p>E-mail: {invoice.importerEmail}</p>
-              <p>Country of Destination: {invoice.importerCountry}</p>
+              <h3 className="font-semibold mb-1 text-sm">Importer / Buyer:</h3>
+              <p className="font-bold text-sm">{invoice.importerCompanyName}</p>
+              <p className="text-xs">{invoice.importerTaxId}</p>
+              <p className="text-xs">{invoice.importerAddress}</p>
+              <p className="text-xs">Zip Code: {invoice.importerZipCode}</p>
+              <p className="text-xs">Phone: {invoice.importerPhone}</p>
+              <p className="text-xs">E-mail: {invoice.importerEmail}</p>
+              <p className="text-xs">Country of Destination: {invoice.importerCountry}</p>
             </div>
             
             <div className="text-right">
-              <p><span className="font-semibold">INCOTERM:</span> {invoice.incoterm}</p>
-              <p><span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport}</p>
-              <p><span className="font-semibold">Availability:</span> {invoice.availability}</p>
-              <p><span className="font-semibold">Currency:</span> {invoice.currency}</p>
-              <p><span className="font-semibold">Payment Method:</span> {invoice.paymentMethod}</p>
+              <p className="text-xs"><span className="font-semibold">INCOTERM:</span> {invoice.incoterm}</p>
+              <p className="text-xs"><span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport}</p>
+              <p className="text-xs"><span className="font-semibold">Availability:</span> {invoice.availability}</p>
+              <p className="text-xs"><span className="font-semibold">Currency:</span> {invoice.currency}</p>
+              <p className="text-xs"><span className="font-semibold">Payment Method:</span> {invoice.paymentMethod}</p>
             </div>
           </div>
 
           {/* Items Table */}
-          <table className="w-full border-collapse mb-6">
+          <table className="w-full border-collapse mb-4">
             <thead>
               <tr className="border-b-2 border-foreground">
                 <th className="text-left py-2 px-2 text-sm">HS CODE (NCM)</th>
@@ -108,40 +123,42 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
           </table>
 
           {/* Bank Details and Total */}
-          <div className="grid grid-cols-2 gap-8 mb-8">
+          <div className="grid grid-cols-2 gap-6 mb-4">
             <div>
-              <h3 className="font-semibold mb-2">Bank Details:</h3>
-              <p>Bank: {company.bankDetails.bank}</p>
-              <p>SWIFT: {company.bankDetails.swift}</p>
-              <p>IBAN: {company.bankDetails.iban}</p>
+              <h3 className="font-semibold mb-1 text-sm">Bank Details:</h3>
+              <p className="text-xs">Bank: {company.bankDetails.bank}</p>
+              <p className="text-xs">SWIFT: {company.bankDetails.swift}</p>
+              <p className="text-xs">IBAN: {company.bankDetails.iban}</p>
             </div>
             
             <div className="text-right">
-              <p className="text-xl font-bold">Total Amount</p>
-              <p className="text-2xl font-bold">${subtotal.toFixed(2)}</p>
+              <p className="text-lg font-bold">Total Amount</p>
+              <p className="text-xl font-bold">${subtotal.toFixed(2)}</p>
             </div>
           </div>
 
           {/* Notes Section */}
           {invoice.notes && (
-            <div className="mt-8">
-              <h3 className="font-semibold mb-2">Note:</h3>
-              <p className="text-sm whitespace-pre-wrap">{invoice.notes}</p>
+            <div className="mt-4 mb-2">
+              <h3 className="font-semibold mb-1 text-sm">Note:</h3>
+              <p className="text-xs whitespace-pre-wrap">{invoice.notes}</p>
             </div>
           )}
 
           {/* Signature Area */}
-          <div className="mt-12 pt-8 border-t">
-            <h3 className="font-semibold mb-8">Client Approval:</h3>
-            <div className="grid grid-cols-2 gap-8 mt-16">
-              <div className="text-center">
-                <div className="border-t border-foreground pt-2">
-                  <p className="font-semibold">{invoice.clientRepresentative}</p>
+          <div className="mt-6 pt-4 border-t">
+            <h3 className="font-semibold mb-3 text-sm">CLIENT APPROVAL:</h3>
+            <div className="grid grid-cols-2 gap-6 mt-8">
+              <div>
+                <div className="border-t border-foreground pt-1">
+                  <p className="font-semibold text-sm">{invoice.clientRepresentative}</p>
+                  <p className="text-xs text-muted-foreground">{invoice.clientCompanyPosition}</p>
                 </div>
               </div>
-              <div className="text-center">
-                <div className="border-t border-foreground pt-2">
-                  <p className="font-semibold">{invoice.clientPosition}</p>
+              <div>
+                <div className="border-t border-foreground pt-1">
+                  <p className="font-semibold text-sm">{invoice.clientPosition}</p>
+                  <p className="text-xs text-muted-foreground">{invoice.clientPositionTitle}</p>
                 </div>
               </div>
             </div>
