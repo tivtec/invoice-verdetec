@@ -1,7 +1,7 @@
 import { Invoice } from '@/types/invoice';
 
 const STORAGE_KEY = 'proforma_invoices';
-const COUNTER_KEY = 'invoice_counter';
+const COUNTER_PREFIX = 'invoice_counter_';
 
 export const getInvoices = (): Invoice[] => {
   const data = localStorage.getItem(STORAGE_KEY);
@@ -33,9 +33,16 @@ export const getInvoiceById = (id: string): Invoice | undefined => {
 };
 
 export const generateInvoiceNumber = (): string => {
-  const counter = localStorage.getItem(COUNTER_KEY);
-  const currentCounter = counter ? parseInt(counter) : 1000;
+  const currentYear = new Date().getFullYear();
+  const yearPrefix = currentYear.toString().slice(-2); // Últimos 2 dígitos do ano (25 para 2025)
+  const counterKey = `${COUNTER_PREFIX}${currentYear}`;
+  
+  const counter = localStorage.getItem(counterKey);
+  const currentCounter = counter ? parseInt(counter) : 0;
   const newCounter = currentCounter + 1;
-  localStorage.setItem(COUNTER_KEY, newCounter.toString());
-  return `INV-${newCounter}`;
+  localStorage.setItem(counterKey, newCounter.toString());
+  
+  // Formata o número com 4 dígitos (0001, 0002, etc.)
+  const sequentialNumber = newCounter.toString().padStart(4, '0');
+  return `${yearPrefix}${sequentialNumber}`;
 };
