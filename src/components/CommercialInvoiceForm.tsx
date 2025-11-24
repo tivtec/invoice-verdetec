@@ -9,11 +9,11 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { generateInvoiceNumber, saveInvoice } from '@/utils/invoiceStorage';
+import { saveInvoice } from '@/utils/invoiceStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
-const invoiceSchema = z.object({
+const commercialSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
   importerCompanyName: z.string().min(1, 'Required field'),
   importerTaxId: z.string().min(1, 'Required field'),
@@ -31,25 +31,23 @@ const invoiceSchema = z.object({
   clientPosition: z.string().default('Rafael Hermes'),
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
-  invoiceNumber: z.string().optional(),
+  invoiceNumber: z.string().min(1, 'Required field'),
 });
 
-type InvoiceFormData = z.infer<typeof invoiceSchema>;
+type CommercialFormData = z.infer<typeof commercialSchema>;
 
-interface InvoiceFormProps {
+interface CommercialInvoiceFormProps {
   invoice?: Invoice;
   onSave?: (invoice: Invoice) => void;
 }
 
-export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
+export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[]>(
-    invoice?.items || []
-  );
+  const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
-    resolver: zodResolver(invoiceSchema),
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<CommercialFormData>({
+    resolver: zodResolver(commercialSchema),
     defaultValues: invoice || {
       companyType: 'equipamentos',
       incoterm: 'EXW',
@@ -92,11 +90,11 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     }));
   };
 
-  const onSubmit = (data: InvoiceFormData) => {
+  const onSubmit = (data: CommercialFormData) => {
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
+      invoiceNumber: data.invoiceNumber,
+      documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
@@ -126,7 +124,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     
     toast({
       title: 'Success!',
-      description: 'Proforma Invoice saved successfully.',
+      description: 'Commercial Invoice saved successfully.',
     });
 
     if (onSave) {
@@ -138,8 +136,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     const data = watch();
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
+      invoiceNumber: data.invoiceNumber,
+      documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
@@ -171,8 +169,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     const data = watch();
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
+      invoiceNumber: data.invoiceNumber,
+      documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
@@ -201,12 +199,13 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
+  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
       <Card className="p-6">
-        <h2 className="text-2xl font-bold mb-4">New Proforma Invoice</h2>
+        <h2 className="text-2xl font-bold mb-4">New Commercial Invoice</h2>
         
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -219,8 +218,9 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             </div>
 
             <div>
-              <Label>Invoice Number (editable)</Label>
-              <Input {...register('invoiceNumber')} placeholder="Auto-generated if empty" />
+              <Label>Invoice Number *</Label>
+              <Input {...register('invoiceNumber')} placeholder="Enter invoice number" />
+              {errors.invoiceNumber && <span className="text-sm text-destructive">{errors.invoiceNumber.message}</span>}
             </div>
           </div>
 
@@ -335,7 +335,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">QTD</Label>
+                  <Label className="text-xs">QTY</Label>
                   <Input 
                     type="number"
                     value={item.qty || ''}
@@ -393,7 +393,11 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
-            <div className="flex justify-end font-bold text-lg">
+            <div className="flex justify-between font-semibold">
+              <span>Total Weight: {totalWeight.toFixed(2)} KG</span>
+              <span>Subtotal: ${subtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-end font-bold text-lg mt-2">
               Total: ${subtotal.toFixed(2)}
             </div>
           </div>

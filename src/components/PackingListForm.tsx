@@ -9,11 +9,11 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { generateInvoiceNumber, saveInvoice } from '@/utils/invoiceStorage';
+import { saveInvoice } from '@/utils/invoiceStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
-const invoiceSchema = z.object({
+const packingSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
   importerCompanyName: z.string().min(1, 'Required field'),
   importerTaxId: z.string().min(1, 'Required field'),
@@ -31,25 +31,23 @@ const invoiceSchema = z.object({
   clientPosition: z.string().default('Rafael Hermes'),
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
-  invoiceNumber: z.string().optional(),
+  invoiceNumber: z.string().min(1, 'Required field'),
 });
 
-type InvoiceFormData = z.infer<typeof invoiceSchema>;
+type PackingFormData = z.infer<typeof packingSchema>;
 
-interface InvoiceFormProps {
+interface PackingListFormProps {
   invoice?: Invoice;
   onSave?: (invoice: Invoice) => void;
 }
 
-export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
+export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[]>(
-    invoice?.items || []
-  );
+  const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
-    resolver: zodResolver(invoiceSchema),
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<PackingFormData>({
+    resolver: zodResolver(packingSchema),
     defaultValues: invoice || {
       companyType: 'equipamentos',
       incoterm: 'EXW',
@@ -92,11 +90,11 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     }));
   };
 
-  const onSubmit = (data: InvoiceFormData) => {
+  const onSubmit = (data: PackingFormData) => {
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
+      invoiceNumber: data.invoiceNumber,
+      documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
@@ -126,7 +124,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     
     toast({
       title: 'Success!',
-      description: 'Proforma Invoice saved successfully.',
+      description: 'Packing List saved successfully.',
     });
 
     if (onSave) {
@@ -138,8 +136,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     const data = watch();
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
+      invoiceNumber: data.invoiceNumber,
+      documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
@@ -171,8 +169,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     const data = watch();
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
+      invoiceNumber: data.invoiceNumber,
+      documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
@@ -201,12 +199,13 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
+  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
       <Card className="p-6">
-        <h2 className="text-2xl font-bold mb-4">New Proforma Invoice</h2>
+        <h2 className="text-2xl font-bold mb-4">New Packing List</h2>
         
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -219,8 +218,9 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             </div>
 
             <div>
-              <Label>Invoice Number (editable)</Label>
-              <Input {...register('invoiceNumber')} placeholder="Auto-generated if empty" />
+              <Label>Document Number *</Label>
+              <Input {...register('invoiceNumber')} placeholder="Enter document number" />
+              {errors.invoiceNumber && <span className="text-sm text-destructive">{errors.invoiceNumber.message}</span>}
             </div>
           </div>
 
@@ -279,7 +279,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             </div>
           </div>
 
-          <h3 className="font-semibold text-lg mt-6">Commercial Terms</h3>
+          <h3 className="font-semibold text-lg mt-6">Shipping Terms</h3>
           
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -299,50 +299,22 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>
-
-            <div>
-              <Label>Availability *</Label>
-              <select {...register('availability')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
-                <option value="IMMEDIATE">IMMEDIATE</option>
-                <option value="15 DAYS">15 DAYS</option>
-                <option value="30 DAYS">30 DAYS</option>
-                <option value="45 DAYS">45 DAYS</option>
-                <option value="60 DAYS">60 DAYS</option>
-                <option value="75 DAYS">75 DAYS</option>
-                <option value="90 DAYS">90 DAYS</option>
-              </select>
-              {errors.availability && <span className="text-sm text-destructive">{errors.availability.message}</span>}
-            </div>
-
-            <div>
-              <Label>Payment Method *</Label>
-              <Input {...register('paymentMethod')} />
-              {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
-            </div>
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Items</h3>
           
           <div className="space-y-2">
             {items.map((item) => (
-              <div key={item.id} className="grid grid-cols-6 gap-2 items-end">
+              <div key={item.id} className="grid grid-cols-5 gap-2 items-end">
                 <div>
-                  <Label className="text-xs">HS CODE</Label>
-                  <Input 
-                    value={item.hsCode}
-                    onChange={(e) => updateItem(item.id, 'hsCode', e.target.value)}
-                    placeholder="NCM"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">QTD</Label>
+                  <Label className="text-xs">QTY</Label>
                   <Input 
                     type="number"
                     value={item.qty || ''}
                     onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
                   />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <Label className="text-xs">Description</Label>
                   <Input 
                     value={item.description}
@@ -350,7 +322,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Weight (KG)</Label>
+                  <Label className="text-xs">Weight per Unit (KG)</Label>
                   <Input 
                     type="number"
                     step="0.01"
@@ -358,20 +330,11 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
                     onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">Unit Price</Label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    value={item.unitPrice || ''}
-                    onChange={(e) => updateItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-end">
                   <div className="flex-1">
-                    <Label className="text-xs">Total</Label>
+                    <Label className="text-xs">Total Weight</Label>
                     <Input 
-                      value={`$${item.total.toFixed(2)}`}
+                      value={`${(item.weight * item.qty).toFixed(2)} KG`}
                       disabled
                     />
                   </div>
@@ -394,7 +357,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
 
           <div className="bg-muted p-4 rounded-md">
             <div className="flex justify-end font-bold text-lg">
-              Total: ${subtotal.toFixed(2)}
+              Total Weight: {totalWeight.toFixed(2)} KG
             </div>
           </div>
 
@@ -404,29 +367,17 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             <Label>Notes</Label>
             <Textarea 
               {...register('notes')} 
-              placeholder="Add notes that will appear at the bottom of the invoice (optional)"
+              placeholder="Add notes that will appear at the bottom of the packing list (optional)"
               rows={3}
             />
           </div>
 
-          <h3 className="font-semibold text-lg mt-6">Client Approval</h3>
+          <h3 className="font-semibold text-lg mt-6">Prepared By</h3>
           
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Client Name *</Label>
-              <Input {...register('clientRepresentative')} />
-              {errors.clientRepresentative && <span className="text-sm text-destructive">{errors.clientRepresentative.message}</span>}
-            </div>
-
-            <div>
               <Label>Verdetec Representative</Label>
               <Input {...register('clientPosition')} />
-            </div>
-
-            <div>
-              <Label>Client Position and Company *</Label>
-              <Input {...register('clientCompanyPosition')} />
-              {errors.clientCompanyPosition && <span className="text-sm text-destructive">{errors.clientCompanyPosition.message}</span>}
             </div>
 
             <div>
