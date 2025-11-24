@@ -14,8 +14,12 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
   };
 
   const company = COMPANY_DATA[invoice.companyType];
-  const totalWeight = invoice.items.reduce((sum, item) => sum + item.weight, 0);
   const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
+  const totalWeight = invoice.items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const documentTitle = invoice.documentType === 'proforma' ? 'PROFORMA INVOICE' : 
+                        invoice.documentType === 'commercial' ? 'COMMERCIAL INVOICE' : 
+                        'PACKING LIST';
+  const isPackingList = invoice.documentType === 'packing';
   const logoColor = invoice.companyType === 'insumos' ? '#104444' : '#EC6D1D';
 
   return (
@@ -44,7 +48,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
               }}
             />
             <div className="text-center flex-1">
-              <h1 className="text-2xl font-bold">PROFORMA INVOICE</h1>
+              <h1 className="text-2xl font-bold">{documentTitle}</h1>
             </div>
             <div className="w-10"></div>
           </div>
@@ -94,48 +98,74 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
           <table className="w-full border-collapse mb-4">
             <thead>
               <tr className="border-b-2 border-foreground">
-                <th className="text-left py-2 px-2 text-sm">HS CODE (NCM)</th>
+                {!isPackingList && <th className="text-left py-2 px-2 text-sm">HS CODE (NCM)</th>}
                 <th className="text-center py-2 px-2 text-sm">QTY</th>
                 <th className="text-left py-2 px-2 text-sm">DESCRIPTION</th>
-                <th className="text-right py-2 px-2 text-sm">Weight (KG)</th>
-                <th className="text-right py-2 px-2 text-sm">UNIT PRICE</th>
-                <th className="text-right py-2 px-2 text-sm">TOTAL</th>
+                <th className="text-right py-2 px-2 text-sm">Weight {isPackingList ? 'per Unit' : ''} (KG)</th>
+                {!isPackingList && <th className="text-right py-2 px-2 text-sm">UNIT PRICE</th>}
+                {!isPackingList && <th className="text-right py-2 px-2 text-sm">TOTAL</th>}
+                {isPackingList && <th className="text-right py-2 px-2 text-sm">TOTAL WEIGHT</th>}
               </tr>
             </thead>
             <tbody>
               {invoice.items.map((item) => (
                 <tr key={item.id} className="border-b">
-                  <td className="py-2 px-2 text-sm">{item.hsCode}</td>
+                  {!isPackingList && <td className="py-2 px-2 text-sm">{item.hsCode}</td>}
                   <td className="text-center py-2 px-2 text-sm">{item.qty}</td>
                   <td className="py-2 px-2 text-sm">{item.description}</td>
                   <td className="text-right py-2 px-2 text-sm">{item.weight.toFixed(2)}</td>
-                  <td className="text-right py-2 px-2 text-sm">${item.unitPrice.toFixed(2)}</td>
-                  <td className="text-right py-2 px-2 text-sm">${item.total.toFixed(2)}</td>
+                  {!isPackingList && <td className="text-right py-2 px-2 text-sm">${item.unitPrice.toFixed(2)}</td>}
+                  {!isPackingList && <td className="text-right py-2 px-2 text-sm">${item.total.toFixed(2)}</td>}
+                  {isPackingList && <td className="text-right py-2 px-2 text-sm">{(item.weight * item.qty).toFixed(2)}</td>}
                 </tr>
               ))}
               <tr className="border-t-2 border-foreground font-semibold">
-                <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
-                <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
-                <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                {isPackingList ? (
+                  <>
+                    <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
+                    <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
+                  </>
+                ) : invoice.documentType === 'commercial' ? (
+                  <>
+                    <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
+                    <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
+                    <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                    <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                  </>
+                ) : (
+                  <>
+                    <td colSpan={4} className="py-2 px-2 text-sm text-right"></td>
+                    <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                    <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                  </>
+                )}
               </tr>
             </tbody>
           </table>
 
-          {/* Bank Details and Total */}
-          <div className="grid grid-cols-2 gap-6 mb-4">
-            <div>
-              <h3 className="font-semibold mb-1 text-sm">Bank Details:</h3>
-              <p className="text-xs">Bank: {company.bankDetails.bank}</p>
-              <p className="text-xs">SWIFT: {company.bankDetails.swift}</p>
-              <p className="text-xs">IBAN: {company.bankDetails.iban}</p>
+          {/* Bank Details and Total / Weight Summary */}
+          {!isPackingList ? (
+            <div className="grid grid-cols-2 gap-6 mb-4">
+              <div>
+                <h3 className="font-semibold mb-1 text-sm">Bank Details:</h3>
+                <p className="text-xs">Bank: {company.bankDetails.bank}</p>
+                <p className="text-xs">SWIFT: {company.bankDetails.swift}</p>
+                <p className="text-xs">IBAN: {company.bankDetails.iban}</p>
+              </div>
+              
+              <div className="text-right">
+                <p className="text-lg font-bold">Total Amount</p>
+                <p className="text-xl font-bold">${subtotal.toFixed(2)}</p>
+              </div>
             </div>
-            
-            <div className="text-right">
-              <p className="text-lg font-bold">Total Amount</p>
-              <p className="text-xl font-bold">${subtotal.toFixed(2)}</p>
+          ) : (
+            <div className="mb-4 p-4 bg-muted rounded">
+              <div className="text-right">
+                <p className="text-lg font-bold">Total Shipment Weight</p>
+                <p className="text-xl font-bold">{totalWeight.toFixed(2)} KG</p>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Notes Section */}
           {invoice.notes && (
@@ -147,21 +177,35 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
 
           {/* Signature Area */}
           <div className="mt-6 pt-4 border-t">
-            <h3 className="font-semibold mb-3 text-sm">CLIENT APPROVAL:</h3>
-            <div className="grid grid-cols-2 gap-6 mt-8">
-              <div>
-                <div className="border-t border-foreground pt-1">
-                  <p className="font-semibold text-sm">{invoice.clientRepresentative}</p>
-                  <p className="text-xs text-muted-foreground">{invoice.clientCompanyPosition}</p>
+            {!isPackingList ? (
+              <>
+                <h3 className="font-semibold mb-3 text-sm">CLIENT APPROVAL:</h3>
+                <div className="grid grid-cols-2 gap-6 mt-8">
+                  <div>
+                    <div className="border-t border-foreground pt-1">
+                      <p className="font-semibold text-sm">{invoice.clientRepresentative}</p>
+                      <p className="text-xs text-muted-foreground">{invoice.clientCompanyPosition}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="border-t border-foreground pt-1">
+                      <p className="font-semibold text-sm">{invoice.clientPosition}</p>
+                      <p className="text-xs text-muted-foreground">{invoice.clientPositionTitle}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="border-t border-foreground pt-1">
-                  <p className="font-semibold text-sm">{invoice.clientPosition}</p>
-                  <p className="text-xs text-muted-foreground">{invoice.clientPositionTitle}</p>
+              </>
+            ) : (
+              <>
+                <h3 className="font-semibold mb-3 text-sm">PREPARED BY:</h3>
+                <div className="mt-8">
+                  <div className="border-t border-foreground pt-1 max-w-sm">
+                    <p className="font-semibold text-sm">{invoice.clientPosition}</p>
+                    <p className="text-xs text-muted-foreground">{invoice.clientPositionTitle}</p>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>

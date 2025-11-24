@@ -1,4 +1,5 @@
 export type CompanyType = 'equipamentos' | 'insumos';
+export type DocumentType = 'proforma' | 'commercial' | 'packing';
 
 export interface InvoiceItem {
   id: string;
@@ -13,6 +14,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   invoiceNumber: string;
+  documentType: DocumentType;
   companyType: CompanyType;
   issueDate: string;
   placeOfIssue: string;

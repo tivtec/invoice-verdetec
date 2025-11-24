@@ -28,12 +28,12 @@ export const InvoiceList = ({ onEdit, onView, refresh }: InvoiceListProps) => {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir esta invoice?')) {
+    if (confirm('Are you sure you want to delete this invoice?')) {
       deleteInvoice(id);
       loadInvoices();
       toast({
-        title: 'Invoice excluída',
-        description: 'A invoice foi excluída com sucesso.',
+        title: 'Invoice deleted',
+        description: 'The invoice has been successfully deleted.',
       });
     }
   };
@@ -41,7 +41,7 @@ export const InvoiceList = ({ onEdit, onView, refresh }: InvoiceListProps) => {
   if (invoices.length === 0) {
     return (
       <Card className="p-8 text-center">
-        <p className="text-muted-foreground">Nenhuma invoice criada ainda.</p>
+        <p className="text-muted-foreground">No invoices created yet.</p>
       </Card>
     );
   }

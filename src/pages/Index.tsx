@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, FileText } from 'lucide-react';
 import { InvoiceForm } from '@/components/InvoiceForm';
+import { CommercialInvoiceForm } from '@/components/CommercialInvoiceForm';
+import { PackingListForm } from '@/components/PackingListForm';
 import { InvoiceList } from '@/components/InvoiceList';
 import { InvoicePrintPreview } from '@/components/InvoicePrintPreview';
 import { Invoice } from '@/types/invoice';
 import verdetecLogoDark from '@/assets/verdetec-logo-dark.png';
 
 const Index = () => {
-  const [view, setView] = useState<'list' | 'form' | 'preview'>('list');
+  const [view, setView] = useState<'list' | 'form' | 'commercial' | 'packing' | 'preview'>('list');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | undefined>();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showDocumentOptions, setShowDocumentOptions] = useState(false);
 
   const handleNew = () => {
     setSelectedInvoice(undefined);
@@ -27,9 +30,33 @@ const Index = () => {
     setView('preview');
   };
 
-  const handleSave = () => {
+  const handleSave = (invoice: Invoice) => {
     setView('list');
     setRefreshKey(prev => prev + 1);
+    // Show automation buttons only for proforma invoices
+    if (invoice.documentType === 'proforma') {
+      setSelectedInvoice(invoice);
+      setShowDocumentOptions(true);
+    }
+  };
+
+  const handleCreateCommercial = () => {
+    if (selectedInvoice) {
+      setView('commercial');
+      setShowDocumentOptions(false);
+    }
+  };
+
+  const handleCreatePacking = () => {
+    if (selectedInvoice) {
+      setView('packing');
+      setShowDocumentOptions(false);
+    }
+  };
+
+  const handleCloseOptions = () => {
+    setShowDocumentOptions(false);
+    setSelectedInvoice(undefined);
   };
 
   return (
@@ -47,16 +74,54 @@ const Index = () => {
           </div>
           {view === 'list' && (
             <Button onClick={handleNew}>
-              <Plus className="mr-2 h-4 w-4" /> Nova Invoice
+              <Plus className="mr-2 h-4 w-4" /> New Invoice
             </Button>
           )}
           {view !== 'list' && (
             <Button variant="outline" onClick={() => setView('list')}>
-              Voltar para Lista
+              Back to List
             </Button>
           )}
         </div>
       </header>
+
+      {/* Document automation options modal */}
+      {showDocumentOptions && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-card p-8 rounded-lg shadow-lg max-w-md w-full mx-4 border">
+            <h2 className="text-2xl font-bold mb-4">Proforma Invoice Created!</h2>
+            <p className="text-muted-foreground mb-6">
+              Would you like to create related documents based on this proforma?
+            </p>
+            <div className="space-y-3">
+              <Button 
+                onClick={handleCreateCommercial} 
+                className="w-full justify-start gap-2"
+                size="lg"
+              >
+                <FileText className="h-5 w-5" />
+                Create Commercial Invoice
+              </Button>
+              <Button 
+                onClick={handleCreatePacking}
+                variant="outline"
+                className="w-full justify-start gap-2"
+                size="lg"
+              >
+                <FileText className="h-5 w-5" />
+                Create Packing List
+              </Button>
+              <Button 
+                onClick={handleCloseOptions}
+                variant="ghost"
+                className="w-full"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="container mx-auto px-4 py-8">
         {view === 'list' && (
@@ -68,6 +133,18 @@ const Index = () => {
         )}
         {view === 'form' && (
           <InvoiceForm 
+            invoice={selectedInvoice} 
+            onSave={handleSave}
+          />
+        )}
+        {view === 'commercial' && (
+          <CommercialInvoiceForm 
+            invoice={selectedInvoice} 
+            onSave={handleSave}
+          />
+        )}
+        {view === 'packing' && (
+          <PackingListForm 
             invoice={selectedInvoice} 
             onSave={handleSave}
           />
