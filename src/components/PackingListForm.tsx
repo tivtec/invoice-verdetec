@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { saveInvoice } from '@/utils/invoiceStorage';
+import { saveInvoice, generatePackingListNumber } from '@/utils/invoiceStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
@@ -20,18 +20,15 @@ const packingSchema = z.object({
   importerAddress: z.string().min(1, 'Required field'),
   importerZipCode: z.string().min(1, 'Required field'),
   importerPhone: z.string().min(1, 'Required field'),
-  importerEmail: z.string().email('Invalid email'),
+  importerEmail: z.string().email('Invalid email').optional().or(z.literal('')),
   importerCountry: z.string().min(1, 'Required field'),
   incoterm: z.string().min(1, 'Required field'),
   modeOfTransport: z.string().min(1, 'Required field'),
-  availability: z.string().min(1, 'Required field'),
   paymentMethod: z.string().min(1, 'Required field'),
-  clientRepresentative: z.string().min(1, 'Required field'),
-  clientCompanyPosition: z.string().min(1, 'Required field'),
   clientPosition: z.string().default('Rafael Hermes'),
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
-  invoiceNumber: z.string().min(1, 'Required field'),
+  invoiceNumber: z.string().optional(),
 });
 
 type PackingFormData = z.infer<typeof packingSchema>;
@@ -48,11 +45,15 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<PackingFormData>({
     resolver: zodResolver(packingSchema),
-    defaultValues: invoice || {
+    defaultValues: invoice ? {
+      ...invoice,
+      invoiceNumber: invoice.documentType === 'commercial' 
+        ? generatePackingListNumber(invoice.invoiceNumber)
+        : invoice.invoiceNumber
+    } : {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
-      availability: '30 DAYS',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
@@ -65,7 +66,7 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
     setItems([...items, {
       id: Date.now().toString(),
       hsCode: '',
-      qty: 0,
+      qty: companyType === 'insumos' ? 1 : 0,
       description: '',
       weight: 0,
       unitPrice: 0,
@@ -81,8 +82,17 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        if (field === 'qty' || field === 'unitPrice') {
-          updated.total = updated.qty * updated.unitPrice;
+        // For INSUMOS: qty is always 1, price is per KG, total = weight * unitPrice
+        if (companyType === 'insumos') {
+          updated.qty = 1;
+          if (field === 'weight' || field === 'unitPrice') {
+            updated.total = updated.weight * updated.unitPrice;
+          }
+        } else {
+          // For EQUIPAMENTOS: normal logic
+          if (field === 'qty' || field === 'unitPrice') {
+            updated.total = updated.qty * updated.unitPrice;
+          }
         }
         return updated;
       }
@@ -91,9 +101,14 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
   };
 
   const onSubmit = (data: PackingFormData) => {
+    const invoiceNumber = data.invoiceNumber || 
+      (invoice?.documentType === 'commercial' 
+        ? generatePackingListNumber(invoice.invoiceNumber)
+        : `PL-${new Date().getFullYear().toString().slice(-2)}0001`);
+
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber,
+      invoiceNumber,
       documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -107,17 +122,18 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
+      availability: '',
       paymentMethod: data.paymentMethod,
-      clientRepresentative: data.clientRepresentative,
-      clientCompanyPosition: data.clientCompanyPosition,
+      clientRepresentative: '',
+      clientCompanyPosition: '',
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
     };
 
     saveInvoice(invoiceData);
@@ -134,9 +150,14 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
 
   const handlePrint = () => {
     const data = watch();
+    const invoiceNumber = data.invoiceNumber || 
+      (invoice?.documentType === 'commercial' 
+        ? generatePackingListNumber(invoice.invoiceNumber)
+        : `PL-${new Date().getFullYear().toString().slice(-2)}0001`);
+
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber,
+      invoiceNumber,
       documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -150,26 +171,32 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
+      availability: '',
       paymentMethod: data.paymentMethod,
-      clientRepresentative: data.clientRepresentative,
-      clientCompanyPosition: data.clientCompanyPosition,
+      clientRepresentative: '',
+      clientCompanyPosition: '',
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
     };
     setShowPreview(true);
   };
 
   if (showPreview) {
     const data = watch();
+    const invoiceNumber = data.invoiceNumber || 
+      (invoice?.documentType === 'commercial' 
+        ? generatePackingListNumber(invoice.invoiceNumber)
+        : `PL-${new Date().getFullYear().toString().slice(-2)}0001`);
+
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber,
+      invoiceNumber,
       documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -183,17 +210,18 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
+      availability: '',
       paymentMethod: data.paymentMethod,
-      clientRepresentative: data.clientRepresentative,
-      clientCompanyPosition: data.clientCompanyPosition,
+      clientRepresentative: '',
+      clientCompanyPosition: '',
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
@@ -267,7 +295,7 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
             </div>
 
             <div>
-              <Label>E-mail *</Label>
+              <Label>E-mail</Label>
               <Input type="email" {...register('importerEmail')} />
               {errors.importerEmail && <span className="text-sm text-destructive">{errors.importerEmail.message}</span>}
             </div>
@@ -306,15 +334,17 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
           <div className="space-y-2">
             {items.map((item) => (
               <div key={item.id} className="grid grid-cols-5 gap-2 items-end">
-                <div>
-                  <Label className="text-xs">QTY</Label>
-                  <Input 
-                    type="number"
-                    value={item.qty || ''}
-                    onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div className="col-span-2">
+                {companyType !== 'insumos' && (
+                  <div>
+                    <Label className="text-xs">QTY</Label>
+                    <Input 
+                      type="number"
+                      value={item.qty || ''}
+                      onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                )}
+                <div className={companyType === 'insumos' ? 'col-span-3' : 'col-span-2'}>
                   <Label className="text-xs">Description</Label>
                   <Input 
                     value={item.description}
@@ -322,7 +352,7 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Weight per Unit (KG)</Label>
+                  <Label className="text-xs">Weight (KG)</Label>
                   <Input 
                     type="number"
                     step="0.01"
@@ -330,14 +360,7 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
                     onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
                   />
                 </div>
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1">
-                    <Label className="text-xs">Total Weight</Label>
-                    <Input 
-                      value={`${(item.weight * item.qty).toFixed(2)} KG`}
-                      disabled
-                    />
-                  </div>
+                <div className="flex gap-2 items-center">
                   <Button 
                     type="button" 
                     variant="destructive" 

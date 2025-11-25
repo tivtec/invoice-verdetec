@@ -20,7 +20,7 @@ const invoiceSchema = z.object({
   importerAddress: z.string().min(1, 'Required field'),
   importerZipCode: z.string().min(1, 'Required field'),
   importerPhone: z.string().min(1, 'Required field'),
-  importerEmail: z.string().email('Invalid email'),
+  importerEmail: z.string().email('Invalid email').optional().or(z.literal('')),
   importerCountry: z.string().min(1, 'Required field'),
   incoterm: z.string().min(1, 'Required field'),
   modeOfTransport: z.string().min(1, 'Required field'),
@@ -67,7 +67,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     setItems([...items, {
       id: Date.now().toString(),
       hsCode: '',
-      qty: 0,
+      qty: companyType === 'insumos' ? 1 : 0,
       description: '',
       weight: 0,
       unitPrice: 0,
@@ -83,8 +83,17 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        if (field === 'qty' || field === 'unitPrice') {
-          updated.total = updated.qty * updated.unitPrice;
+        // For INSUMOS: qty is always 1, price is per KG, total = weight * unitPrice
+        if (companyType === 'insumos') {
+          updated.qty = 1;
+          if (field === 'weight' || field === 'unitPrice') {
+            updated.total = updated.weight * updated.unitPrice;
+          }
+        } else {
+          // For EQUIPAMENTOS: normal logic
+          if (field === 'qty' || field === 'unitPrice') {
+            updated.total = updated.qty * updated.unitPrice;
+          }
         }
         return updated;
       }
@@ -267,7 +276,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             </div>
 
             <div>
-              <Label>E-mail *</Label>
+              <Label>E-mail</Label>
               <Input type="email" {...register('importerEmail')} />
               {errors.importerEmail && <span className="text-sm text-destructive">{errors.importerEmail.message}</span>}
             </div>
@@ -334,15 +343,17 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
                     placeholder="NCM"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">QTD</Label>
-                  <Input 
-                    type="number"
-                    value={item.qty || ''}
-                    onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div>
+                {companyType !== 'insumos' && (
+                  <div>
+                    <Label className="text-xs">QTY</Label>
+                    <Input 
+                      type="number"
+                      value={item.qty || ''}
+                      onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                )}
+                <div className={companyType === 'insumos' ? 'col-span-2' : ''}>
                   <Label className="text-xs">Description</Label>
                   <Input 
                     value={item.description}
@@ -359,7 +370,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Unit Price</Label>
+                  <Label className="text-xs">{companyType === 'insumos' ? 'Price per KG' : 'Unit Price'}</Label>
                   <Input 
                     type="number"
                     step="0.01"

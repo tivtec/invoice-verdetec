@@ -44,5 +44,23 @@ export const generateInvoiceNumber = (): string => {
   
   // Formata o número com 4 dígitos (0001, 0002, etc.)
   const sequentialNumber = newCounter.toString().padStart(4, '0');
-  return `${yearPrefix}${sequentialNumber}`;
+  return `PI-${yearPrefix}${sequentialNumber}`;
+};
+
+// Extracts the base number from an invoice number (e.g., "PI-250001" -> "250001")
+const getBaseNumber = (invoiceNumber: string): string => {
+  const match = invoiceNumber.match(/\d{6}$/);
+  return match ? match[0] : '';
+};
+
+// Generate Commercial Invoice number from Proforma Invoice
+export const generateCommercialInvoiceNumber = (proformaNumber: string): string => {
+  const baseNumber = getBaseNumber(proformaNumber);
+  return `CI-${baseNumber}`;
+};
+
+// Generate Packing List number from Commercial Invoice
+export const generatePackingListNumber = (commercialNumber: string): string => {
+  const baseNumber = getBaseNumber(commercialNumber);
+  return `PL-${baseNumber}`;
 };
