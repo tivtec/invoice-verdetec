@@ -47,6 +47,9 @@ export interface Invoice {
   // Notes
   notes?: string;
   
+  // Source document reference (for CI from PI, PL from CI)
+  sourceInvoiceId?: string;
+  
   createdAt: string;
   updatedAt: string;
 }

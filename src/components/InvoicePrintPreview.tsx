@@ -81,16 +81,21 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
               <p className="text-xs">{invoice.importerAddress}</p>
               <p className="text-xs">Zip Code: {invoice.importerZipCode}</p>
               <p className="text-xs">Phone: {invoice.importerPhone}</p>
-              <p className="text-xs">E-mail: {invoice.importerEmail}</p>
+              {invoice.importerEmail && <p className="text-xs">E-mail: {invoice.importerEmail}</p>}
               <p className="text-xs">Country of Destination: {invoice.importerCountry}</p>
             </div>
             
             <div className="text-right">
               <p className="text-xs"><span className="font-semibold">INCOTERM:</span> {invoice.incoterm}</p>
               <p className="text-xs"><span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport}</p>
-              <p className="text-xs"><span className="font-semibold">Availability:</span> {invoice.availability}</p>
+              {invoice.documentType === 'proforma' && (
+                <p className="text-xs"><span className="font-semibold">Availability:</span> {invoice.availability}</p>
+              )}
               <p className="text-xs"><span className="font-semibold">Currency:</span> {invoice.currency}</p>
               <p className="text-xs"><span className="font-semibold">Payment Method:</span> {invoice.paymentMethod}</p>
+              {invoice.documentType === 'packing' && invoice.sourceInvoiceId && (
+                <p className="text-xs"><span className="font-semibold">Associated Commercial Invoice:</span> {invoice.sourceInvoiceId}</p>
+              )}
             </div>
           </div>
 

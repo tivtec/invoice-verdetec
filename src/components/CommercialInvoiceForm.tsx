@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { saveInvoice } from '@/utils/invoiceStorage';
+import { saveInvoice, generateCommercialInvoiceNumber } from '@/utils/invoiceStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
@@ -20,18 +20,17 @@ const commercialSchema = z.object({
   importerAddress: z.string().min(1, 'Required field'),
   importerZipCode: z.string().min(1, 'Required field'),
   importerPhone: z.string().min(1, 'Required field'),
-  importerEmail: z.string().email('Invalid email'),
+  importerEmail: z.string().email('Invalid email').optional().or(z.literal('')),
   importerCountry: z.string().min(1, 'Required field'),
   incoterm: z.string().min(1, 'Required field'),
   modeOfTransport: z.string().min(1, 'Required field'),
-  availability: z.string().min(1, 'Required field'),
   paymentMethod: z.string().min(1, 'Required field'),
   clientRepresentative: z.string().min(1, 'Required field'),
   clientCompanyPosition: z.string().min(1, 'Required field'),
   clientPosition: z.string().default('Rafael Hermes'),
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
-  invoiceNumber: z.string().min(1, 'Required field'),
+  invoiceNumber: z.string().optional(),
 });
 
 type CommercialFormData = z.infer<typeof commercialSchema>;
@@ -48,11 +47,15 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<CommercialFormData>({
     resolver: zodResolver(commercialSchema),
-    defaultValues: invoice || {
+    defaultValues: invoice ? {
+      ...invoice,
+      invoiceNumber: invoice.documentType === 'proforma' 
+        ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
+        : invoice.invoiceNumber
+    } : {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
-      availability: '30 DAYS',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
@@ -65,7 +68,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
     setItems([...items, {
       id: Date.now().toString(),
       hsCode: '',
-      qty: 0,
+      qty: companyType === 'insumos' ? 1 : 0,
       description: '',
       weight: 0,
       unitPrice: 0,
@@ -81,8 +84,17 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        if (field === 'qty' || field === 'unitPrice') {
-          updated.total = updated.qty * updated.unitPrice;
+        // For INSUMOS: qty is always 1, price is per KG, total = weight * unitPrice
+        if (companyType === 'insumos') {
+          updated.qty = 1;
+          if (field === 'weight' || field === 'unitPrice') {
+            updated.total = updated.weight * updated.unitPrice;
+          }
+        } else {
+          // For EQUIPAMENTOS: normal logic
+          if (field === 'qty' || field === 'unitPrice') {
+            updated.total = updated.qty * updated.unitPrice;
+          }
         }
         return updated;
       }
@@ -91,9 +103,14 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
   };
 
   const onSubmit = (data: CommercialFormData) => {
+    const invoiceNumber = data.invoiceNumber || 
+      (invoice?.documentType === 'proforma' 
+        ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
+        : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
+
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber,
+      invoiceNumber,
       documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -107,17 +124,18 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
+      availability: '',
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
     };
 
     saveInvoice(invoiceData);
@@ -134,9 +152,14 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
 
   const handlePrint = () => {
     const data = watch();
+    const invoiceNumber = data.invoiceNumber || 
+      (invoice?.documentType === 'proforma' 
+        ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
+        : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
+
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber,
+      invoiceNumber,
       documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -150,26 +173,32 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
+      availability: '',
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
     };
     setShowPreview(true);
   };
 
   if (showPreview) {
     const data = watch();
+    const invoiceNumber = data.invoiceNumber || 
+      (invoice?.documentType === 'proforma' 
+        ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
+        : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
+
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber,
+      invoiceNumber,
       documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -183,17 +212,18 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
+      availability: '',
       paymentMethod: data.paymentMethod,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
@@ -267,7 +297,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
             </div>
 
             <div>
-              <Label>E-mail *</Label>
+              <Label>E-mail</Label>
               <Input type="email" {...register('importerEmail')} />
               {errors.importerEmail && <span className="text-sm text-destructive">{errors.importerEmail.message}</span>}
             </div>
@@ -301,20 +331,6 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
             </div>
 
             <div>
-              <Label>Availability *</Label>
-              <select {...register('availability')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
-                <option value="IMMEDIATE">IMMEDIATE</option>
-                <option value="15 DAYS">15 DAYS</option>
-                <option value="30 DAYS">30 DAYS</option>
-                <option value="45 DAYS">45 DAYS</option>
-                <option value="60 DAYS">60 DAYS</option>
-                <option value="75 DAYS">75 DAYS</option>
-                <option value="90 DAYS">90 DAYS</option>
-              </select>
-              {errors.availability && <span className="text-sm text-destructive">{errors.availability.message}</span>}
-            </div>
-
-            <div>
               <Label>Payment Method *</Label>
               <Input {...register('paymentMethod')} />
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
@@ -334,15 +350,17 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
                     placeholder="NCM"
                   />
                 </div>
-                <div>
-                  <Label className="text-xs">QTY</Label>
-                  <Input 
-                    type="number"
-                    value={item.qty || ''}
-                    onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div>
+                {companyType !== 'insumos' && (
+                  <div>
+                    <Label className="text-xs">QTY</Label>
+                    <Input 
+                      type="number"
+                      value={item.qty || ''}
+                      onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                )}
+                <div className={companyType === 'insumos' ? 'col-span-2' : ''}>
                   <Label className="text-xs">Description</Label>
                   <Input 
                     value={item.description}
@@ -359,7 +377,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Unit Price</Label>
+                  <Label className="text-xs">{companyType === 'insumos' ? 'Price per KG' : 'Unit Price'}</Label>
                   <Input 
                     type="number"
                     step="0.01"

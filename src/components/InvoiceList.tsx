@@ -54,7 +54,9 @@ export const InvoiceList = ({ onEdit, onView, refresh }: InvoiceListProps) => {
             <div>
               <h3 className="font-semibold text-lg">{invoice.invoiceNumber}</h3>
               <p className="text-sm text-muted-foreground">
-                {invoice.importerCompanyName} • {invoice.issueDate}
+                {invoice.documentType === 'proforma' ? 'Proforma Invoice' : 
+                 invoice.documentType === 'commercial' ? 'Commercial Invoice' : 
+                 'Packing List'} • {invoice.importerCompanyName} • {invoice.issueDate}
               </p>
               <p className="text-sm">
                 Total: ${invoice.items.reduce((sum, item) => sum + item.total, 0).toFixed(2)}

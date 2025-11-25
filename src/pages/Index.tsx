@@ -1,28 +1,52 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, FileText } from 'lucide-react';
+import { Plus, FileText, Package } from 'lucide-react';
 import { InvoiceForm } from '@/components/InvoiceForm';
 import { CommercialInvoiceForm } from '@/components/CommercialInvoiceForm';
 import { PackingListForm } from '@/components/PackingListForm';
 import { InvoiceList } from '@/components/InvoiceList';
 import { InvoicePrintPreview } from '@/components/InvoicePrintPreview';
 import { Invoice } from '@/types/invoice';
+import { getInvoices } from '@/utils/invoiceStorage';
 import verdetecLogoDark from '@/assets/verdetec-logo-dark.png';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Card } from '@/components/ui/card';
 
 const Index = () => {
   const [view, setView] = useState<'list' | 'form' | 'commercial' | 'packing' | 'preview'>('list');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | undefined>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [showDocumentOptions, setShowDocumentOptions] = useState(false);
+  const [showSourceSelector, setShowSourceSelector] = useState<'commercial' | 'packing' | null>(null);
 
   const handleNew = () => {
     setSelectedInvoice(undefined);
     setView('form');
   };
 
+  const handleNewCommercial = () => {
+    setShowSourceSelector('commercial');
+  };
+
+  const handleNewPacking = () => {
+    setShowSourceSelector('packing');
+  };
+
   const handleEdit = (invoice: Invoice) => {
     setSelectedInvoice(invoice);
-    setView('form');
+    if (invoice.documentType === 'proforma') {
+      setView('form');
+    } else if (invoice.documentType === 'commercial') {
+      setView('commercial');
+    } else {
+      setView('packing');
+    }
   };
 
   const handleView = (invoice: Invoice) => {
@@ -59,6 +83,26 @@ const Index = () => {
     setSelectedInvoice(undefined);
   };
 
+  const handleSelectSource = (sourceInvoice: Invoice) => {
+    setSelectedInvoice(sourceInvoice);
+    if (showSourceSelector === 'commercial') {
+      setView('commercial');
+    } else if (showSourceSelector === 'packing') {
+      setView('packing');
+    }
+    setShowSourceSelector(null);
+  };
+
+  const handleCreateFromScratch = () => {
+    setSelectedInvoice(undefined);
+    if (showSourceSelector === 'commercial') {
+      setView('commercial');
+    } else if (showSourceSelector === 'packing') {
+      setView('packing');
+    }
+    setShowSourceSelector(null);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
@@ -73,9 +117,17 @@ const Index = () => {
             <h1 className="text-2xl font-bold">SISTEMA DE INVOICE VERDETEC</h1>
           </div>
           {view === 'list' && (
-            <Button onClick={handleNew}>
-              <Plus className="mr-2 h-4 w-4" /> New Invoice
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleNew}>
+                <Plus className="mr-2 h-4 w-4" /> Criar Proforma Invoice
+              </Button>
+              <Button onClick={handleNewCommercial} variant="outline">
+                <FileText className="mr-2 h-4 w-4" /> Criar Commercial Invoice
+              </Button>
+              <Button onClick={handleNewPacking} variant="outline">
+                <Package className="mr-2 h-4 w-4" /> Criar Packing List
+              </Button>
+            </div>
           )}
           {view !== 'list' && (
             <Button variant="outline" onClick={() => setView('list')}>
@@ -108,7 +160,7 @@ const Index = () => {
                 className="w-full justify-start gap-2"
                 size="lg"
               >
-                <FileText className="h-5 w-5" />
+                <Package className="h-5 w-5" />
                 Create Packing List
               </Button>
               <Button 
@@ -122,6 +174,70 @@ const Index = () => {
           </div>
         </div>
       )}
+
+      {/* Source selector modal */}
+      <Dialog open={!!showSourceSelector} onOpenChange={() => setShowSourceSelector(null)}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {showSourceSelector === 'commercial' 
+                ? 'Criar Commercial Invoice' 
+                : 'Criar Packing List'}
+            </DialogTitle>
+            <DialogDescription>
+              {showSourceSelector === 'commercial'
+                ? 'Selecione uma Proforma Invoice existente para criar uma Commercial Invoice com os mesmos dados, ou crie do zero.'
+                : 'Selecione uma Commercial Invoice existente para criar uma Packing List com os mesmos dados.'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {showSourceSelector === 'commercial' && (
+              <Button 
+                onClick={handleCreateFromScratch}
+                variant="outline"
+                className="w-full"
+              >
+                Criar do zero
+              </Button>
+            )}
+            
+            <div className="space-y-2">
+              <h4 className="font-semibold text-sm">
+                {showSourceSelector === 'commercial' 
+                  ? 'Ou selecione uma Proforma Invoice:' 
+                  : 'Selecione uma Commercial Invoice:'}
+              </h4>
+              {getInvoices()
+                .filter(inv => 
+                  showSourceSelector === 'commercial' 
+                    ? inv.documentType === 'proforma'
+                    : inv.documentType === 'commercial'
+                )
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .map(invoice => (
+                  <Card 
+                    key={invoice.id} 
+                    className="p-4 cursor-pointer hover:bg-accent transition-colors"
+                    onClick={() => handleSelectSource(invoice)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold">{invoice.invoiceNumber}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {invoice.importerCompanyName} • {invoice.issueDate}
+                        </p>
+                      </div>
+                      <Button variant="ghost" size="sm">
+                        Selecionar
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <main className="container mx-auto px-4 py-8">
         {view === 'list' && (
