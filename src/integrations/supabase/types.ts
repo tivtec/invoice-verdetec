@@ -14,7 +14,176 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      importers: {
+        Row: {
+          address: string
+          company_name: string
+          country: string
+          created_at: string
+          email: string | null
+          id: string
+          phone: string
+          tax_id: string
+          updated_at: string
+          zip_code: string
+        }
+        Insert: {
+          address: string
+          company_name: string
+          country: string
+          created_at?: string
+          email?: string | null
+          id?: string
+          phone: string
+          tax_id: string
+          updated_at?: string
+          zip_code: string
+        }
+        Update: {
+          address?: string
+          company_name?: string
+          country?: string
+          created_at?: string
+          email?: string | null
+          id?: string
+          phone?: string
+          tax_id?: string
+          updated_at?: string
+          zip_code?: string
+        }
+        Relationships: []
+      }
+      invoice_items: {
+        Row: {
+          created_at: string
+          description: string
+          hs_code: string
+          id: string
+          invoice_id: string
+          qty: number
+          total: number
+          unit_price: number
+          volume: number | null
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          hs_code: string
+          id?: string
+          invoice_id: string
+          qty: number
+          total: number
+          unit_price: number
+          volume?: number | null
+          weight: number
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          hs_code?: string
+          id?: string
+          invoice_id?: string
+          qty?: number
+          total?: number
+          unit_price?: number
+          volume?: number | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoices: {
+        Row: {
+          availability: string | null
+          client_company_position: string
+          client_position: string
+          client_position_title: string
+          client_representative: string
+          company_type: Database["public"]["Enums"]["company_type"]
+          created_at: string
+          currency: string
+          document_type: Database["public"]["Enums"]["document_type"]
+          id: string
+          importer_id: string
+          incoterm: string
+          invoice_number: string
+          issue_date: string
+          mode_of_transport: string
+          notes: string | null
+          payment_method: string
+          place_of_issue: string
+          source_invoice_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          availability?: string | null
+          client_company_position: string
+          client_position: string
+          client_position_title: string
+          client_representative: string
+          company_type: Database["public"]["Enums"]["company_type"]
+          created_at?: string
+          currency: string
+          document_type: Database["public"]["Enums"]["document_type"]
+          id?: string
+          importer_id: string
+          incoterm: string
+          invoice_number: string
+          issue_date: string
+          mode_of_transport: string
+          notes?: string | null
+          payment_method: string
+          place_of_issue: string
+          source_invoice_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          availability?: string | null
+          client_company_position?: string
+          client_position?: string
+          client_position_title?: string
+          client_representative?: string
+          company_type?: Database["public"]["Enums"]["company_type"]
+          created_at?: string
+          currency?: string
+          document_type?: Database["public"]["Enums"]["document_type"]
+          id?: string
+          importer_id?: string
+          incoterm?: string
+          invoice_number?: string
+          issue_date?: string
+          mode_of_transport?: string
+          notes?: string | null
+          payment_method?: string
+          place_of_issue?: string
+          source_invoice_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_importer_id_fkey"
+            columns: ["importer_id"]
+            isOneToOne: false
+            referencedRelation: "importers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_source_invoice_id_fkey"
+            columns: ["source_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +192,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      company_type: "equipamentos" | "insumos"
+      document_type: "proforma" | "commercial" | "packing"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +320,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      company_type: ["equipamentos", "insumos"],
+      document_type: ["proforma", "commercial", "packing"],
+    },
   },
 } as const
