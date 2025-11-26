@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
 import { saveInvoice, generateCommercialInvoiceNumber } from '@/utils/invoiceStorage';
@@ -44,25 +45,35 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
   const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
+  const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
 
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<CommercialFormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<CommercialFormData>({
     resolver: zodResolver(commercialSchema),
     defaultValues: invoice ? {
       ...invoice,
       invoiceNumber: invoice.documentType === 'proforma' 
         ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
-        : invoice.invoiceNumber
+        : invoice.invoiceNumber,
+      clientPosition: 'Caroline Franzen',
+      clientPositionTitle: 'Verdetec Administrative Manager',
     } : {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
       paymentMethod: '100% PRIOR TO SHIPPING.',
-      clientPosition: 'Rafael Hermes',
-      clientPositionTitle: 'VERDETEC SALES MANAGER',
+      clientPosition: 'Caroline Franzen',
+      clientPositionTitle: 'Verdetec Administrative Manager',
+      notes: '',
     }
   });
 
   const companyType = watch('companyType');
+  
+  // Set default notes for Insumos
+  const currentNotes = watch('notes');
+  if (companyType === 'insumos' && !currentNotes) {
+    setValue('notes', 'Unit price refers to price per kilogram (Kg).');
+  }
 
   const addItem = () => {
     setItems([...items, {
@@ -109,14 +120,14 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
         : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
 
     const invoiceData: Invoice = {
-      id: invoice?.id || Date.now().toString(),
+      id: Date.now().toString(),
       invoiceNumber,
       documentType: 'commercial',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
       items,
-      createdAt: invoice?.createdAt || new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       companyType: data.companyType,
       importerCompanyName: data.importerCompanyName,
@@ -136,6 +147,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
+      packingWeight,
     };
 
     saveInvoice(invoiceData);
@@ -185,6 +197,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
+      packingWeight,
     };
     setShowPreview(true);
   };
@@ -229,8 +242,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
-  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + packingWeight;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -411,6 +424,19 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
+            <div className="flex flex-col gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="packingWeightCI">Packing Weight (KG) - Optional:</Label>
+                <Input 
+                  id="packingWeightCI"
+                  type="number"
+                  step="0.01"
+                  value={packingWeight || ''}
+                  onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
+                  className="w-32"
+                />
+              </div>
+            </div>
             <div className="flex justify-between font-semibold">
               <span>Total Weight: {totalWeight.toFixed(2)} KG</span>
               <span>Subtotal: ${subtotal.toFixed(2)}</span>
