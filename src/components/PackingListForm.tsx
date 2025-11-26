@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
 import { saveInvoice, generatePackingListNumber } from '@/utils/invoiceStorage';
@@ -42,21 +43,32 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
   const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
+  const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
 
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<PackingFormData>({
+  const packingListDefaultNotes = `Product Dimensions:
+Net Weight:
+Gross Weight:
+Cubic Measurement (CBM):
+Packing Specifications:`;
+
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<PackingFormData>({
     resolver: zodResolver(packingSchema),
     defaultValues: invoice ? {
       ...invoice,
       invoiceNumber: invoice.documentType === 'commercial' 
         ? generatePackingListNumber(invoice.invoiceNumber)
-        : invoice.invoiceNumber
+        : invoice.invoiceNumber,
+      clientPosition: 'Caroline Franzen',
+      clientPositionTitle: 'Verdetec Administrative Manager',
+      notes: invoice.notes || packingListDefaultNotes,
     } : {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
       paymentMethod: '100% PRIOR TO SHIPPING.',
-      clientPosition: 'Rafael Hermes',
-      clientPositionTitle: 'VERDETEC SALES MANAGER',
+      clientPosition: 'Caroline Franzen',
+      clientPositionTitle: 'Verdetec Administrative Manager',
+      notes: packingListDefaultNotes,
     }
   });
 
@@ -107,14 +119,14 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
         : `PL-${new Date().getFullYear().toString().slice(-2)}0001`);
 
     const invoiceData: Invoice = {
-      id: invoice?.id || Date.now().toString(),
+      id: Date.now().toString(),
       invoiceNumber,
       documentType: 'packing',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
       currency: 'US$',
       items,
-      createdAt: invoice?.createdAt || new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       companyType: data.companyType,
       importerCompanyName: data.importerCompanyName,
@@ -134,6 +146,7 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
+      packingWeight,
     };
 
     saveInvoice(invoiceData);
@@ -183,6 +196,7 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
+      packingWeight,
     };
     setShowPreview(true);
   };
@@ -222,12 +236,13 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
+      packingWeight,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
-  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + packingWeight;
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
 
   return (
@@ -379,6 +394,19 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
+            <div className="flex flex-col gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="packingWeightPL">Packing Weight (KG) - Optional:</Label>
+                <Input 
+                  id="packingWeightPL"
+                  type="number"
+                  step="0.01"
+                  value={packingWeight || ''}
+                  onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
+                  className="w-32"
+                />
+              </div>
+            </div>
             <div className="flex justify-end font-bold text-lg">
               Total Weight: {totalWeight.toFixed(2)} KG
             </div>

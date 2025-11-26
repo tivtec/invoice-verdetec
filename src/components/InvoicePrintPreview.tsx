@@ -15,12 +15,13 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
 
   const company = COMPANY_DATA[invoice.companyType];
   const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
-  const totalWeight = invoice.items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const totalWeight = invoice.items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + (invoice.packingWeight || 0);
   const documentTitle = invoice.documentType === 'proforma' ? 'PROFORMA INVOICE' : 
                         invoice.documentType === 'commercial' ? 'COMMERCIAL INVOICE' : 
                         'PACKING LIST';
   const isPackingList = invoice.documentType === 'packing';
   const logoColor = invoice.companyType === 'insumos' ? '#104444' : '#EC6D1D';
+  const showTotalWeight = invoice.documentType === 'proforma' ? (invoice.showTotalWeight ?? true) : true;
 
   return (
     <div className="min-h-screen bg-muted">
@@ -131,6 +132,13 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                     <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
                   </>
                 ) : invoice.documentType === 'commercial' ? (
+                  <>
+                    <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
+                    <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
+                    <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                    <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                  </>
+                ) : showTotalWeight ? (
                   <>
                     <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
                     <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>

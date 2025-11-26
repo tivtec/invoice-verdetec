@@ -50,6 +50,10 @@ export interface Invoice {
   // Source document reference (for CI from PI, PL from CI)
   sourceInvoiceId?: string;
   
+  // Display options
+  showTotalWeight?: boolean;
+  packingWeight?: number;
+  
   createdAt: string;
   updatedAt: string;
 }

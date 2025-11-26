@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
 import { generateInvoiceNumber, saveInvoice } from '@/utils/invoiceStorage';
@@ -47,6 +48,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
   const [items, setItems] = useState<InvoiceItem[]>(
     invoice?.items || []
   );
+  const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
+  const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
@@ -58,10 +61,17 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
+      notes: '',
     }
   });
 
   const companyType = watch('companyType');
+  
+  // Set default notes for Insumos
+  const currentNotes = watch('notes');
+  if (companyType === 'insumos' && !currentNotes) {
+    setValue('notes', 'Unit price refers to price per kilogram (Kg).');
+  }
 
   const addItem = () => {
     setItems([...items, {
@@ -129,6 +139,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      showTotalWeight,
+      packingWeight,
     };
 
     saveInvoice(invoiceData);
@@ -172,6 +184,8 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      showTotalWeight,
+      packingWeight,
     };
     setShowPreview(true);
   };
@@ -205,12 +219,15 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       clientPosition: data.clientPosition,
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
+      showTotalWeight,
+      packingWeight,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + packingWeight;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -404,8 +421,38 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
-            <div className="flex justify-end font-bold text-lg">
-              Total: ${subtotal.toFixed(2)}
+            <div className="flex justify-between items-center">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="packingWeight">Packing Weight (KG) - Optional:</Label>
+                  <Input 
+                    id="packingWeight"
+                    type="number"
+                    step="0.01"
+                    value={packingWeight || ''}
+                    onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
+                    className="w-32"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox 
+                    id="showTotalWeight"
+                    checked={showTotalWeight}
+                    onCheckedChange={(checked) => setShowTotalWeight(checked as boolean)}
+                  />
+                  <Label htmlFor="showTotalWeight" className="cursor-pointer">
+                    Show Total Weight in print preview
+                  </Label>
+                </div>
+                {showTotalWeight && (
+                  <p className="text-sm text-muted-foreground">
+                    Total Weight: {totalWeight.toFixed(2)} KG
+                  </p>
+                )}
+              </div>
+              <div className="font-bold text-lg">
+                Total: ${subtotal.toFixed(2)}
+              </div>
             </div>
           </div>
 
