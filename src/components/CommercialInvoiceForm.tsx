@@ -46,6 +46,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
   const [showPreview, setShowPreview] = useState(false);
   const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
   const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
+  const [includePackingWeight, setIncludePackingWeight] = useState(invoice?.includePackingWeight ?? false);
+  const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<CommercialFormData>({
     resolver: zodResolver(commercialSchema),
@@ -69,10 +71,12 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
 
   const companyType = watch('companyType');
   
-  // Set default notes for Insumos
+  // Set default notes for Insumos when company type changes
   const currentNotes = watch('notes');
-  if (companyType === 'insumos' && !currentNotes) {
+  if (companyType === 'insumos' && currentNotes === '') {
     setValue('notes', 'Unit price refers to price per kilogram (Kg).');
+  } else if (companyType === 'equipamentos' && currentNotes === 'Unit price refers to price per kilogram (Kg).') {
+    setValue('notes', '');
   }
 
   const addItem = () => {
@@ -148,6 +152,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
       packingWeight,
+      includePackingWeight,
+      showTotalWeight,
     };
 
     saveInvoice(invoiceData);
@@ -198,6 +204,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
       packingWeight,
+      includePackingWeight,
+      showTotalWeight,
     };
     setShowPreview(true);
   };
@@ -237,13 +245,17 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
       clientPositionTitle: data.clientPositionTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
+      packingWeight,
+      includePackingWeight,
+      showTotalWeight,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + packingWeight;
+  const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const totalWeight = itemsWeight + (includePackingWeight ? packingWeight : 0);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -424,7 +436,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
-            <div className="flex flex-col gap-2 mb-2">
+            <div className="flex flex-col gap-3 mb-2">
               <div className="flex items-center gap-2">
                 <Label htmlFor="packingWeightCI">Packing Weight (KG) - Optional:</Label>
                 <Input 
@@ -436,10 +448,32 @@ export const CommercialInvoiceForm = ({ invoice, onSave }: CommercialInvoiceForm
                   className="w-32"
                 />
               </div>
+              {packingWeight > 0 && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="includePackingWeightCI"
+                    checked={includePackingWeight}
+                    onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
+                  />
+                  <Label htmlFor="includePackingWeightCI" className="cursor-pointer">
+                    Include Packing Weight in Total Weight calculation
+                  </Label>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="showTotalWeightCI"
+                  checked={showTotalWeight}
+                  onCheckedChange={(checked) => setShowTotalWeight(checked as boolean)}
+                />
+                <Label htmlFor="showTotalWeightCI" className="cursor-pointer">
+                  Show Total Weight in printed version
+                </Label>
+              </div>
             </div>
             <div className="flex justify-between font-semibold">
-              <span>Total Weight: {totalWeight.toFixed(2)} KG</span>
-              <span>Subtotal: ${subtotal.toFixed(2)}</span>
+              {showTotalWeight && <span>Total Weight: {totalWeight.toFixed(2)} KG</span>}
+              <span className={!showTotalWeight ? 'ml-auto' : ''}>Subtotal: ${subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-end font-bold text-lg mt-2">
               Total: ${subtotal.toFixed(2)}

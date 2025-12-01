@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { generateInvoiceNumber, saveInvoice } from '@/utils/invoiceStorage';
+import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
@@ -45,11 +45,10 @@ interface InvoiceFormProps {
 export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[]>(
-    invoice?.items || []
-  );
+  const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
   const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
   const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
+  const [includePackingWeight, setIncludePackingWeight] = useState(invoice?.includePackingWeight ?? false);
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
@@ -67,10 +66,12 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
 
   const companyType = watch('companyType');
   
-  // Set default notes for Insumos
+  // Set default notes for Insumos when company type changes
   const currentNotes = watch('notes');
-  if (companyType === 'insumos' && !currentNotes) {
+  if (companyType === 'insumos' && currentNotes === '') {
     setValue('notes', 'Unit price refers to price per kilogram (Kg).');
+  } else if (companyType === 'equipamentos' && currentNotes === 'Unit price refers to price per kilogram (Kg).') {
+    setValue('notes', '');
   }
 
   const addItem = () => {
@@ -111,47 +112,66 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     }));
   };
 
-  const onSubmit = (data: InvoiceFormData) => {
-    const invoiceData: Invoice = {
-      id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
-      documentType: 'proforma',
-      issueDate: new Date().toLocaleDateString('en-US'),
-      placeOfIssue: 'Brusque-SC-Brasil',
-      currency: 'US$',
-      items,
-      createdAt: invoice?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      companyType: data.companyType,
-      importerCompanyName: data.importerCompanyName,
-      importerTaxId: data.importerTaxId,
-      importerAddress: data.importerAddress,
-      importerZipCode: data.importerZipCode,
-      importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
-      importerCountry: data.importerCountry,
-      incoterm: data.incoterm,
-      modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
-      paymentMethod: data.paymentMethod,
-      clientRepresentative: data.clientRepresentative,
-      clientCompanyPosition: data.clientCompanyPosition,
-      clientPosition: data.clientPosition,
-      clientPositionTitle: data.clientPositionTitle,
-      notes: data.notes,
-      showTotalWeight,
-      packingWeight,
-    };
+  const onSubmit = async (data: InvoiceFormData) => {
+    try {
+      const baseNumber = await getBaseNumber();
+      const invoiceNumber = data.invoiceNumber || await generateInvoiceNumber();
+      
+      // Create order first
+      let order = await getOrderByBaseNumber(baseNumber);
+      if (!order) {
+        order = await createOrder(baseNumber);
+      }
 
-    saveInvoice(invoiceData);
-    
-    toast({
-      title: 'Success!',
-      description: 'Proforma Invoice saved successfully.',
-    });
+      const invoiceData: Invoice = {
+        id: invoice?.id || Date.now().toString(),
+        invoiceNumber,
+        documentType: 'proforma',
+        issueDate: new Date().toLocaleDateString('en-US'),
+        placeOfIssue: 'Brusque-SC-Brasil',
+        currency: 'US$',
+        items,
+        createdAt: invoice?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        companyType: data.companyType,
+        importerCompanyName: data.importerCompanyName,
+        importerTaxId: data.importerTaxId,
+        importerAddress: data.importerAddress,
+        importerZipCode: data.importerZipCode,
+        importerPhone: data.importerPhone,
+        importerEmail: data.importerEmail || '',
+        importerCountry: data.importerCountry,
+        incoterm: data.incoterm,
+        modeOfTransport: data.modeOfTransport,
+        availability: data.availability,
+        paymentMethod: data.paymentMethod,
+        clientRepresentative: data.clientRepresentative,
+        clientCompanyPosition: data.clientCompanyPosition,
+        clientPosition: data.clientPosition,
+        clientPositionTitle: data.clientPositionTitle,
+        notes: data.notes,
+        showTotalWeight,
+        packingWeight,
+        includePackingWeight,
+      };
 
-    if (onSave) {
-      onSave(invoiceData);
+      await saveInvoice(invoiceData, order.id);
+      
+      toast({
+        title: 'Success!',
+        description: 'Proforma Invoice saved successfully.',
+      });
+
+      if (onSave) {
+        onSave(invoiceData);
+      }
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save invoice. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -159,7 +179,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     const data = watch();
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
+      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
       documentType: 'proforma',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -173,7 +193,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
@@ -186,6 +206,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       notes: data.notes,
       showTotalWeight,
       packingWeight,
+      includePackingWeight,
     };
     setShowPreview(true);
   };
@@ -194,7 +215,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
     const data = watch();
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || generateInvoiceNumber(),
+      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
       documentType: 'proforma',
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brasil',
@@ -208,7 +229,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
       importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail,
+      importerEmail: data.importerEmail || '',
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
@@ -221,13 +242,15 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       notes: data.notes,
       showTotalWeight,
       packingWeight,
+      includePackingWeight,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + packingWeight;
+  const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const totalWeight = itemsWeight + (includePackingWeight ? packingWeight : 0);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -245,8 +268,9 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
             </div>
 
             <div>
-              <Label>Invoice Number (editable)</Label>
-              <Input {...register('invoiceNumber')} placeholder="Auto-generated if empty" />
+              <Label>Invoice Number</Label>
+              <Input {...register('invoiceNumber')} placeholder="Auto-generated if left empty" />
+              {errors.invoiceNumber && <span className="text-sm text-destructive">{errors.invoiceNumber.message}</span>}
             </div>
           </div>
 
@@ -307,7 +331,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
 
           <h3 className="font-semibold text-lg mt-6">Commercial Terms</h3>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <Label>INCOTERM *</Label>
               <Input {...register('incoterm')} placeholder="Ex: EXW, FOB, CIF" />
@@ -328,19 +352,11 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
 
             <div>
               <Label>Availability *</Label>
-              <select {...register('availability')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
-                <option value="IMMEDIATE">IMMEDIATE</option>
-                <option value="15 DAYS">15 DAYS</option>
-                <option value="30 DAYS">30 DAYS</option>
-                <option value="45 DAYS">45 DAYS</option>
-                <option value="60 DAYS">60 DAYS</option>
-                <option value="75 DAYS">75 DAYS</option>
-                <option value="90 DAYS">90 DAYS</option>
-              </select>
+              <Input {...register('availability')} placeholder="Ex: 30 DAYS" />
               {errors.availability && <span className="text-sm text-destructive">{errors.availability.message}</span>}
             </div>
 
-            <div>
+            <div className="col-span-3">
               <Label>Payment Method *</Label>
               <Input {...register('paymentMethod')} />
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
@@ -421,38 +437,47 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
-            <div className="flex justify-between items-center">
-              <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3 mb-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="packingWeight">Packing Weight (KG) - Optional:</Label>
+                <Input 
+                  id="packingWeight"
+                  type="number"
+                  step="0.01"
+                  value={packingWeight || ''}
+                  onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
+                  className="w-32"
+                />
+              </div>
+              {packingWeight > 0 && (
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="packingWeight">Packing Weight (KG) - Optional:</Label>
-                  <Input 
-                    id="packingWeight"
-                    type="number"
-                    step="0.01"
-                    value={packingWeight || ''}
-                    onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
-                    className="w-32"
+                  <Checkbox
+                    id="includePackingWeight"
+                    checked={includePackingWeight}
+                    onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
                   />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox 
-                    id="showTotalWeight"
-                    checked={showTotalWeight}
-                    onCheckedChange={(checked) => setShowTotalWeight(checked as boolean)}
-                  />
-                  <Label htmlFor="showTotalWeight" className="cursor-pointer">
-                    Show Total Weight in print preview
+                  <Label htmlFor="includePackingWeight" className="cursor-pointer">
+                    Include Packing Weight in Total Weight calculation
                   </Label>
                 </div>
-                {showTotalWeight && (
-                  <p className="text-sm text-muted-foreground">
-                    Total Weight: {totalWeight.toFixed(2)} KG
-                  </p>
-                )}
+              )}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="showTotalWeight"
+                  checked={showTotalWeight}
+                  onCheckedChange={(checked) => setShowTotalWeight(checked as boolean)}
+                />
+                <Label htmlFor="showTotalWeight" className="cursor-pointer">
+                  Show Total Weight in printed version
+                </Label>
               </div>
-              <div className="font-bold text-lg">
-                Total: ${subtotal.toFixed(2)}
-              </div>
+            </div>
+            <div className="flex justify-between font-semibold">
+              {showTotalWeight && <span>Total Weight: {totalWeight.toFixed(2)} KG</span>}
+              <span className={!showTotalWeight ? 'ml-auto' : ''}>Subtotal: ${subtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-end font-bold text-lg mt-2">
+              Total: ${subtotal.toFixed(2)}
             </div>
           </div>
 

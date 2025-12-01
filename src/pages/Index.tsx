@@ -4,10 +4,11 @@ import { Plus, FileText, Package } from 'lucide-react';
 import { InvoiceForm } from '@/components/InvoiceForm';
 import { CommercialInvoiceForm } from '@/components/CommercialInvoiceForm';
 import { PackingListForm } from '@/components/PackingListForm';
-import { InvoiceList } from '@/components/InvoiceList';
+import { OrderList } from '@/components/OrderList';
 import { InvoicePrintPreview } from '@/components/InvoicePrintPreview';
+import { SearchBar } from '@/components/SearchBar';
 import { Invoice } from '@/types/invoice';
-import { getInvoices } from '@/utils/invoiceStorage';
+import { getInvoices } from '@/utils/supabaseStorage';
 import verdetecLogoDark from '@/assets/verdetec-logo-dark.png';
 import {
   Dialog,
@@ -24,6 +25,7 @@ const Index = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showDocumentOptions, setShowDocumentOptions] = useState(false);
   const [showSourceSelector, setShowSourceSelector] = useState<'commercial' | 'packing' | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleNew = () => {
     setSelectedInvoice(undefined);
@@ -101,6 +103,11 @@ const Index = () => {
       setView('packing');
     }
     setShowSourceSelector(null);
+  };
+
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    setRefreshKey(prev => prev + 1);
   };
 
   return (
@@ -208,32 +215,8 @@ const Index = () => {
                   ? 'Ou selecione uma Proforma Invoice:' 
                   : 'Selecione uma Commercial Invoice:'}
               </h4>
-              {getInvoices()
-                .filter(inv => 
-                  showSourceSelector === 'commercial' 
-                    ? inv.documentType === 'proforma'
-                    : inv.documentType === 'commercial'
-                )
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                .map(invoice => (
-                  <Card 
-                    key={invoice.id} 
-                    className="p-4 cursor-pointer hover:bg-accent transition-colors"
-                    onClick={() => handleSelectSource(invoice)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-semibold">{invoice.invoiceNumber}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {invoice.importerCompanyName} • {invoice.issueDate}
-                        </p>
-                      </div>
-                      <Button variant="ghost" size="sm">
-                        Selecionar
-                      </Button>
-                    </div>
-                  </Card>
-                ))}
+              {/* This will need to be updated to use Supabase queries */}
+              <p className="text-sm text-muted-foreground">Loading...</p>
             </div>
           </div>
         </DialogContent>
@@ -241,11 +224,17 @@ const Index = () => {
 
       <main className="container mx-auto px-4 py-8">
         {view === 'list' && (
-          <InvoiceList 
-            onEdit={handleEdit} 
-            onView={handleView}
-            refresh={refreshKey}
-          />
+          <>
+            <div className="mb-6">
+              <SearchBar onSearch={handleSearch} />
+            </div>
+            <OrderList 
+              onEdit={handleEdit} 
+              onView={handleView}
+              refresh={refreshKey}
+              searchQuery={searchQuery}
+            />
+          </>
         )}
         {view === 'form' && (
           <InvoiceForm 

@@ -53,6 +53,7 @@ export interface Invoice {
   // Display options
   showTotalWeight?: boolean;
   packingWeight?: number;
+  includePackingWeight?: boolean;
   
   createdAt: string;
   updatedAt: string;
@@ -74,8 +75,8 @@ export const COMPANY_DATA = {
   insumos: {
     name: 'INSUMOS HIDROSSEMEADURA VERDETEC LTDA',
     cnpj: '41.183.017/0001-09',
-    address: 'Rua Vergílio Cadore, 9259, Campeche, Itajaí, SC, Brasil',
-    zipCode: '88318-995',
+    address: 'Rua Mário Murara, nº 2.735, Distrito de Volta Grande, Rio Negrinho-SC',
+    zipCode: '89299-506',
     phone: '+55 (47) 3308-8805',
     bankDetails: {
       bank: 'Banco do Brasil – City of Brusque/SC',
