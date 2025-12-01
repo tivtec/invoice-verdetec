@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      attachments: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_path: string
+          file_size: number
+          file_type: string
+          id: string
+          invoice_id: string | null
+          order_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_path: string
+          file_size: number
+          file_type: string
+          id?: string
+          invoice_id?: string | null
+          order_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          file_size?: number
+          file_type?: string
+          id?: string
+          invoice_id?: string | null
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachments_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       importers: {
         Row: {
           address: string
@@ -113,13 +161,17 @@ export type Database = {
           document_type: Database["public"]["Enums"]["document_type"]
           id: string
           importer_id: string
+          include_packing_weight: boolean | null
           incoterm: string
           invoice_number: string
           issue_date: string
           mode_of_transport: string
           notes: string | null
+          order_id: string | null
+          packing_weight: number | null
           payment_method: string
           place_of_issue: string
+          show_total_weight: boolean | null
           source_invoice_id: string | null
           updated_at: string
         }
@@ -135,13 +187,17 @@ export type Database = {
           document_type: Database["public"]["Enums"]["document_type"]
           id?: string
           importer_id: string
+          include_packing_weight?: boolean | null
           incoterm: string
           invoice_number: string
           issue_date: string
           mode_of_transport: string
           notes?: string | null
+          order_id?: string | null
+          packing_weight?: number | null
           payment_method: string
           place_of_issue: string
+          show_total_weight?: boolean | null
           source_invoice_id?: string | null
           updated_at?: string
         }
@@ -157,13 +213,17 @@ export type Database = {
           document_type?: Database["public"]["Enums"]["document_type"]
           id?: string
           importer_id?: string
+          include_packing_weight?: boolean | null
           incoterm?: string
           invoice_number?: string
           issue_date?: string
           mode_of_transport?: string
           notes?: string | null
+          order_id?: string | null
+          packing_weight?: number | null
           payment_method?: string
           place_of_issue?: string
+          show_total_weight?: boolean | null
           source_invoice_id?: string | null
           updated_at?: string
         }
@@ -176,6 +236,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "invoices_source_invoice_id_fkey"
             columns: ["source_invoice_id"]
             isOneToOne: false
@@ -183,6 +250,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      orders: {
+        Row: {
+          base_number: string
+          created_at: string
+          id: string
+          order_number: string
+          updated_at: string
+        }
+        Insert: {
+          base_number: string
+          created_at?: string
+          id?: string
+          order_number: string
+          updated_at?: string
+        }
+        Update: {
+          base_number?: string
+          created_at?: string
+          id?: string
+          order_number?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {

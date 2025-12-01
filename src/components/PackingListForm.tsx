@@ -44,6 +44,8 @@ export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
   const [showPreview, setShowPreview] = useState(false);
   const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
   const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
+  const [includePackingWeight, setIncludePackingWeight] = useState(invoice?.includePackingWeight ?? false);
+  const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
 
   const packingListDefaultNotes = `Product Dimensions:
 Net Weight:
@@ -147,6 +149,8 @@ Packing Specifications:`;
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
       packingWeight,
+      includePackingWeight,
+      showTotalWeight,
     };
 
     saveInvoice(invoiceData);
@@ -197,6 +201,8 @@ Packing Specifications:`;
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
       packingWeight,
+      includePackingWeight,
+      showTotalWeight,
     };
     setShowPreview(true);
   };
@@ -237,12 +243,15 @@ Packing Specifications:`;
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
       packingWeight,
+      includePackingWeight,
+      showTotalWeight,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
-  const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + packingWeight;
+  const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const totalWeight = itemsWeight + (includePackingWeight ? packingWeight : 0);
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
 
   return (
@@ -394,7 +403,7 @@ Packing Specifications:`;
           </Button>
 
           <div className="bg-muted p-4 rounded-md">
-            <div className="flex flex-col gap-2 mb-2">
+            <div className="flex flex-col gap-3 mb-2">
               <div className="flex items-center gap-2">
                 <Label htmlFor="packingWeightPL">Packing Weight (KG) - Optional:</Label>
                 <Input 
@@ -406,10 +415,34 @@ Packing Specifications:`;
                   className="w-32"
                 />
               </div>
+              {packingWeight > 0 && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="includePackingWeightPL"
+                    checked={includePackingWeight}
+                    onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
+                  />
+                  <Label htmlFor="includePackingWeightPL" className="cursor-pointer">
+                    Include Packing Weight in Total Weight calculation
+                  </Label>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="showTotalWeightPL"
+                  checked={showTotalWeight}
+                  onCheckedChange={(checked) => setShowTotalWeight(checked as boolean)}
+                />
+                <Label htmlFor="showTotalWeightPL" className="cursor-pointer">
+                  Show Total Weight in printed version
+                </Label>
+              </div>
             </div>
-            <div className="flex justify-end font-bold text-lg">
-              Total Weight: {totalWeight.toFixed(2)} KG
-            </div>
+            {showTotalWeight && (
+              <div className="flex justify-end font-bold text-lg">
+                Total Weight: {totalWeight.toFixed(2)} KG
+              </div>
+            )}
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Notes (Optional)</h3>

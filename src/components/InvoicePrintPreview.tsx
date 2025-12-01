@@ -15,13 +15,14 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
 
   const company = COMPANY_DATA[invoice.companyType];
   const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
-  const totalWeight = invoice.items.reduce((sum, item) => sum + (item.weight * item.qty), 0) + (invoice.packingWeight || 0);
+  const itemsWeight = invoice.items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const totalWeight = itemsWeight + (invoice.includePackingWeight ? (invoice.packingWeight || 0) : 0);
   const documentTitle = invoice.documentType === 'proforma' ? 'PROFORMA INVOICE' : 
                         invoice.documentType === 'commercial' ? 'COMMERCIAL INVOICE' : 
                         'PACKING LIST';
   const isPackingList = invoice.documentType === 'packing';
   const logoColor = invoice.companyType === 'insumos' ? '#104444' : '#EC6D1D';
-  const showTotalWeight = invoice.documentType === 'proforma' ? (invoice.showTotalWeight ?? true) : true;
+  const showTotalWeight = invoice.showTotalWeight ?? true;
 
   return (
     <div className="min-h-screen bg-muted">
@@ -95,7 +96,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
               <p className="text-xs"><span className="font-semibold">Currency:</span> {invoice.currency}</p>
               <p className="text-xs"><span className="font-semibold">Payment Method:</span> {invoice.paymentMethod}</p>
               {invoice.documentType === 'packing' && invoice.sourceInvoiceId && (
-                <p className="text-xs"><span className="font-semibold">Associated Commercial Invoice:</span> {invoice.sourceInvoiceId}</p>
+                <p className="text-xs"><span className="font-semibold">Packing List related to Commercial Invoice Nº:</span> {invoice.sourceInvoiceId}</p>
               )}
             </div>
           </div>
@@ -128,15 +129,14 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
               <tr className="border-t-2 border-foreground font-semibold">
                 {isPackingList ? (
                   <>
-                    <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
-                    <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
-                  </>
-                ) : invoice.documentType === 'commercial' ? (
-                  <>
-                    <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
-                    <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
-                    <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                    <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                    {showTotalWeight ? (
+                      <>
+                        <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
+                        <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
+                      </>
+                    ) : (
+                      <td colSpan={4} className="py-2 px-2 text-sm"></td>
+                    )}
                   </>
                 ) : showTotalWeight ? (
                   <>
@@ -171,14 +171,14 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                 <p className="text-xl font-bold">${subtotal.toFixed(2)}</p>
               </div>
             </div>
-          ) : (
+          ) : showTotalWeight ? (
             <div className="mb-4 p-4 bg-muted rounded">
               <div className="text-right">
                 <p className="text-lg font-bold">Total Shipment Weight</p>
                 <p className="text-xl font-bold">{totalWeight.toFixed(2)} KG</p>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Notes Section */}
           {invoice.notes && (
