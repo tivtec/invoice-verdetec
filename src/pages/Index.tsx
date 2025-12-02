@@ -28,6 +28,8 @@ const Index = () => {
   const [showSourceSelector, setShowSourceSelector] = useState<'commercial' | 'packing' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [ordersWithDetails, setOrdersWithDetails] = useState<any[]>([]);
+  const [currentOrderId, setCurrentOrderId] = useState<string | undefined>();
+  const [availableSourceInvoices, setAvailableSourceInvoices] = useState<Invoice[]>([]);
 
   const handleNew = () => {
     setSelectedInvoice(undefined);
@@ -35,11 +37,44 @@ const Index = () => {
   };
 
   const handleNewCommercial = () => {
+    setCurrentOrderId(undefined);
+    setAvailableSourceInvoices([]);
     setShowSourceSelector('commercial');
   };
 
   const handleNewPacking = () => {
+    setCurrentOrderId(undefined);
+    setAvailableSourceInvoices([]);
     setShowSourceSelector('packing');
+  };
+
+  const handleCreateCommercialInOrder = async (orderId: string, sourceInvoice?: Invoice) => {
+    setCurrentOrderId(orderId);
+    if (sourceInvoice) {
+      setSelectedInvoice(sourceInvoice);
+      setView('commercial');
+    } else {
+      // Load available proforma invoices from this order
+      const invoices = await getInvoicesByOrderId(orderId);
+      const proformas = invoices.filter(inv => inv.documentType === 'proforma');
+      setAvailableSourceInvoices(proformas);
+      setShowSourceSelector('commercial');
+    }
+  };
+
+  const handleCreatePackingInOrder = async (orderId: string, sourceInvoice?: Invoice) => {
+    setCurrentOrderId(orderId);
+    if (sourceInvoice) {
+      setSelectedInvoice(sourceInvoice);
+      setView('packing');
+    } else {
+      // Load available commercial invoices from this order
+      const invoices = await getInvoicesByOrderId(orderId);
+      const commercials = invoices.filter(inv => inv.documentType === 'commercial');
+      const proformas = invoices.filter(inv => inv.documentType === 'proforma');
+      setAvailableSourceInvoices([...commercials, ...proformas]);
+      setShowSourceSelector('packing');
+    }
   };
 
   const handleEdit = (invoice: Invoice) => {
@@ -58,9 +93,10 @@ const Index = () => {
     setView('preview');
   };
 
-  const handleSave = (invoice: Invoice) => {
+  const handleSave = (invoice: Invoice, orderId?: string) => {
     setView('list');
     setRefreshKey(prev => prev + 1);
+    setCurrentOrderId(undefined);
     // Show automation buttons only for proforma invoices
     if (invoice.documentType === 'proforma') {
       setSelectedInvoice(invoice);
@@ -85,10 +121,12 @@ const Index = () => {
   const handleCloseOptions = () => {
     setShowDocumentOptions(false);
     setSelectedInvoice(undefined);
+    setCurrentOrderId(undefined);
   };
 
   const handleSelectSource = (sourceInvoice: Invoice) => {
     setSelectedInvoice(sourceInvoice);
+    setCurrentOrderId(undefined); // Reset when selecting from global list
     if (showSourceSelector === 'commercial') {
       setView('commercial');
     } else if (showSourceSelector === 'packing') {
@@ -242,15 +280,32 @@ const Index = () => {
               </Button>
             )}
             
-            <div className="space-y-2">
-              <h4 className="font-semibold text-sm">
-                {showSourceSelector === 'commercial' 
-                  ? 'Ou selecione uma Proforma Invoice:' 
-                  : 'Selecione uma Commercial Invoice:'}
-              </h4>
-              {/* This will need to be updated to use Supabase queries */}
-              <p className="text-sm text-muted-foreground">Loading...</p>
-            </div>
+            {availableSourceInvoices.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm">
+                  {showSourceSelector === 'commercial' 
+                    ? 'Ou selecione uma Proforma Invoice:' 
+                    : 'Selecione um documento fonte:'}
+                </h4>
+                {availableSourceInvoices.map((invoice) => (
+                  <Card 
+                    key={invoice.id}
+                    className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSelectSource(invoice)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{invoice.invoiceNumber}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {invoice.documentType.toUpperCase()} - {invoice.importerCompanyName}
+                        </p>
+                      </div>
+                      <span className="text-sm text-muted-foreground">{invoice.issueDate}</span>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -269,6 +324,8 @@ const Index = () => {
               orders={ordersWithDetails}
               onSelectInvoice={handleView}
               onRefresh={() => setRefreshKey(prev => prev + 1)}
+              onCreateCommercial={handleCreateCommercialInOrder}
+              onCreatePacking={handleCreatePackingInOrder}
             />
           </>
         )}
@@ -282,12 +339,14 @@ const Index = () => {
           <CommercialInvoiceForm 
             invoice={selectedInvoice} 
             onSave={handleSave}
+            orderId={currentOrderId}
           />
         )}
         {view === 'packing' && (
           <PackingListForm 
             invoice={selectedInvoice} 
             onSave={handleSave}
+            orderId={currentOrderId}
           />
         )}
         {view === 'preview' && selectedInvoice && (

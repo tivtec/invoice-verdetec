@@ -10,7 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { saveInvoice, generatePackingListNumber } from '@/utils/invoiceStorage';
+import { saveInvoice as saveToLocalStorage, generatePackingListNumber } from '@/utils/invoiceStorage';
+import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
@@ -36,10 +37,11 @@ type PackingFormData = z.infer<typeof packingSchema>;
 
 interface PackingListFormProps {
   invoice?: Invoice;
-  onSave?: (invoice: Invoice) => void;
+  onSave?: (invoice: Invoice, orderId?: string) => void;
+  orderId?: string;
 }
 
-export const PackingListForm = ({ invoice, onSave }: PackingListFormProps) => {
+export const PackingListForm = ({ invoice, onSave, orderId }: PackingListFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
   const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
@@ -114,54 +116,82 @@ Packing Specifications:`;
     }));
   };
 
-  const onSubmit = (data: PackingFormData) => {
-    const invoiceNumber = data.invoiceNumber || 
-      (invoice?.documentType === 'commercial' 
-        ? generatePackingListNumber(invoice.invoiceNumber)
-        : `PL-${new Date().getFullYear().toString().slice(-2)}0001`);
+  const onSubmit = async (data: PackingFormData) => {
+    try {
+      const invoiceNumber = data.invoiceNumber || 
+        (invoice?.documentType === 'commercial' 
+          ? generatePackingListNumber(invoice.invoiceNumber)
+          : `PL-${await getBaseNumber()}`);
 
-    const invoiceData: Invoice = {
-      id: Date.now().toString(),
-      invoiceNumber,
-      documentType: 'packing',
-      issueDate: new Date().toLocaleDateString('en-US'),
-      placeOfIssue: 'Brusque-SC-Brasil',
-      currency: 'US$',
-      items,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      companyType: data.companyType,
-      importerCompanyName: data.importerCompanyName,
-      importerTaxId: data.importerTaxId,
-      importerAddress: data.importerAddress,
-      importerZipCode: data.importerZipCode,
-      importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail || '',
-      importerCountry: data.importerCountry,
-      incoterm: data.incoterm,
-      modeOfTransport: data.modeOfTransport,
-      availability: '',
-      paymentMethod: data.paymentMethod,
-      clientRepresentative: '',
-      clientCompanyPosition: '',
-      clientPosition: data.clientPosition,
-      clientPositionTitle: data.clientPositionTitle,
-      notes: data.notes,
-      sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
-      packingWeight,
-      includePackingWeight,
-      showTotalWeight,
-    };
+      const invoiceData: Invoice = {
+        id: crypto.randomUUID(),
+        invoiceNumber,
+        documentType: 'packing',
+        issueDate: new Date().toLocaleDateString('en-US'),
+        placeOfIssue: 'Brusque-SC-Brasil',
+        currency: 'US$',
+        items,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        companyType: data.companyType,
+        importerCompanyName: data.importerCompanyName,
+        importerTaxId: data.importerTaxId,
+        importerAddress: data.importerAddress,
+        importerZipCode: data.importerZipCode,
+        importerPhone: data.importerPhone,
+        importerEmail: data.importerEmail || '',
+        importerCountry: data.importerCountry,
+        incoterm: data.incoterm,
+        modeOfTransport: data.modeOfTransport,
+        availability: '',
+        paymentMethod: data.paymentMethod,
+        clientRepresentative: '',
+        clientCompanyPosition: '',
+        clientPosition: data.clientPosition,
+        clientPositionTitle: data.clientPositionTitle,
+        notes: data.notes,
+        sourceInvoiceId: invoice?.documentType === 'commercial' ? invoice.invoiceNumber : undefined,
+        packingWeight,
+        includePackingWeight,
+        showTotalWeight,
+      };
 
-    saveInvoice(invoiceData);
-    
-    toast({
-      title: 'Success!',
-      description: 'Packing List saved successfully.',
-    });
+      let targetOrderId = orderId;
+      
+      if (!targetOrderId) {
+        const baseNumber = invoiceNumber.match(/\d{6}$/)?.[0];
+        if (baseNumber) {
+          const existingOrder = await getOrderByBaseNumber(baseNumber);
+          if (existingOrder) {
+            targetOrderId = existingOrder.id;
+          } else {
+            const newOrder = await createOrder(baseNumber);
+            targetOrderId = newOrder.id;
+          }
+        }
+      }
 
-    if (onSave) {
-      onSave(invoiceData);
+      if (!targetOrderId) {
+        throw new Error('Could not determine order ID');
+      }
+
+      await saveInvoice(invoiceData, targetOrderId);
+      
+      toast({
+        title: 'Success!',
+        description: 'Packing List saved successfully.',
+      });
+
+      if (onSave) {
+        onSave(invoiceData, targetOrderId);
+      }
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save invoice. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
