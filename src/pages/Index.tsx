@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Plus, FileText, Package } from 'lucide-react';
 import { InvoiceForm } from '@/components/InvoiceForm';
@@ -8,7 +8,8 @@ import { OrderList } from '@/components/OrderList';
 import { InvoicePrintPreview } from '@/components/InvoicePrintPreview';
 import { SearchBar } from '@/components/SearchBar';
 import { Invoice } from '@/types/invoice';
-import { getInvoices } from '@/utils/supabaseStorage';
+import { getOrders, getInvoicesByOrderId, getAttachmentsByOrderId, searchInvoices } from '@/utils/supabaseStorage';
+import { Order } from '@/types/order';
 import verdetecLogoDark from '@/assets/verdetec-logo-dark.png';
 import {
   Dialog,
@@ -26,6 +27,7 @@ const Index = () => {
   const [showDocumentOptions, setShowDocumentOptions] = useState(false);
   const [showSourceSelector, setShowSourceSelector] = useState<'commercial' | 'packing' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [ordersWithDetails, setOrdersWithDetails] = useState<any[]>([]);
 
   const handleNew = () => {
     setSelectedInvoice(undefined);
@@ -105,10 +107,41 @@ const Index = () => {
     setShowSourceSelector(null);
   };
 
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    setRefreshKey(prev => prev + 1);
-  };
+  useEffect(() => {
+    const loadOrders = async () => {
+      try {
+        if (searchQuery.trim()) {
+          const invoices = await searchInvoices(searchQuery);
+          // Group invoices by order
+          const orderMap = new Map();
+          for (const invoice of invoices) {
+            // You would need to fetch order details here
+            // This is a simplified version
+          }
+          // For now, just show invoices without proper grouping when searching
+          setOrdersWithDetails([]);
+        } else {
+          const orders = await getOrders();
+          const ordersWithData = await Promise.all(
+            orders.map(async (order) => {
+              const invoices = await getInvoicesByOrderId(order.id);
+              const attachments = await getAttachmentsByOrderId(order.id);
+              return {
+                ...order,
+                invoices,
+                attachments,
+              };
+            })
+          );
+          setOrdersWithDetails(ordersWithData);
+        }
+      } catch (error) {
+        console.error('Error loading orders:', error);
+      }
+    };
+
+    loadOrders();
+  }, [refreshKey, searchQuery]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -226,13 +259,16 @@ const Index = () => {
         {view === 'list' && (
           <>
             <div className="mb-6">
-              <SearchBar onSearch={handleSearch} />
+              <SearchBar 
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search by invoice number or company name..."
+              />
             </div>
             <OrderList 
-              onEdit={handleEdit} 
-              onView={handleView}
-              refresh={refreshKey}
-              searchQuery={searchQuery}
+              orders={ordersWithDetails}
+              onSelectInvoice={handleView}
+              onRefresh={() => setRefreshKey(prev => prev + 1)}
             />
           </>
         )}
