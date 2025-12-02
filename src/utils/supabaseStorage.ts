@@ -51,6 +51,15 @@ export const getOrderByBaseNumber = async (baseNumber: string): Promise<Order | 
   return data;
 };
 
+export const deleteOrder = async (id: string): Promise<void> => {
+  const { error } = await supabase
+    .from('orders')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+};
+
 // Invoice operations
 const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
   return {

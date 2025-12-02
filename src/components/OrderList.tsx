@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2 } from 'lucide-react';
 import { Order, Attachment } from '@/types/order';
 import { Invoice } from '@/types/invoice';
-import { getAttachmentUrl, deleteAttachment } from '@/utils/supabaseStorage';
+import { getAttachmentUrl, deleteAttachment, deleteOrder } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 
 interface OrderWithDetails extends Order {
@@ -52,27 +52,71 @@ export const OrderList = ({ orders, onSelectInvoice, onRefresh }: OrderListProps
     }
   };
 
+  const handleDeleteOrder = async (order: OrderWithDetails) => {
+    if (order.invoices.length > 0 || order.attachments.length > 0) {
+      toast({
+        title: 'Cannot delete order',
+        description: 'Order must be empty to be deleted.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${order.order_number}?`)) return;
+
+    try {
+      await deleteOrder(order.id);
+      toast({
+        title: 'Success',
+        description: 'Order deleted successfully.',
+      });
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete order.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="space-y-4">
       {orders.map((order) => {
         const isExpanded = expandedOrders.has(order.id);
+        const isEmpty = order.invoices.length === 0 && order.attachments.length === 0;
         
         return (
           <Card key={order.id} className="p-4">
-            <div
-              className="flex items-center justify-between cursor-pointer"
-              onClick={() => toggleOrder(order.id)}
-            >
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between">
+              <div 
+                className="flex items-center gap-2 flex-1 cursor-pointer"
+                onClick={() => toggleOrder(order.id)}
+              >
                 {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                 <h3 className="font-semibold text-lg">{order.order_number}</h3>
                 <span className="text-sm text-muted-foreground">
                   ({order.invoices.length} document{order.invoices.length !== 1 ? 's' : ''})
                 </span>
               </div>
-              <span className="text-sm text-muted-foreground">
-                {new Date(order.created_at).toLocaleDateString()}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">
+                  {new Date(order.created_at).toLocaleDateString()}
+                </span>
+                {isEmpty && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteOrder(order);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
 
             {isExpanded && (
