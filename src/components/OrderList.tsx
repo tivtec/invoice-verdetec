@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2, Plus, Upload } from 'lucide-react';
 import { Order, Attachment } from '@/types/order';
 import { Invoice } from '@/types/invoice';
 import { getAttachmentUrl, deleteAttachment, deleteOrder } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
+import { AttachmentUpload } from './AttachmentUpload';
 
 interface OrderWithDetails extends Order {
   invoices: Invoice[];
@@ -16,10 +17,13 @@ interface OrderListProps {
   orders: OrderWithDetails[];
   onSelectInvoice: (invoice: Invoice) => void;
   onRefresh: () => void;
+  onCreateCommercial?: (orderId: string, sourceInvoice?: Invoice) => void;
+  onCreatePacking?: (orderId: string, sourceInvoice?: Invoice) => void;
 }
 
-export const OrderList = ({ orders, onSelectInvoice, onRefresh }: OrderListProps) => {
+export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateCommercial, onCreatePacking }: OrderListProps) => {
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [showUpload, setShowUpload] = useState<string | null>(null);
   const { toast } = useToast();
 
   const toggleOrder = (orderId: string) => {
@@ -120,7 +124,49 @@ export const OrderList = ({ orders, onSelectInvoice, onRefresh }: OrderListProps
             </div>
 
             {isExpanded && (
-              <div className="mt-4 space-y-2 pl-7">
+              <div className="mt-4 space-y-3 pl-7">
+                {/* Action buttons */}
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onCreateCommercial?.(order.id)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Commercial Invoice
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onCreatePacking?.(order.id)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Packing List
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowUpload(showUpload === order.id ? null : order.id)}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Document
+                  </Button>
+                </div>
+
+                {/* Upload area */}
+                {showUpload === order.id && (
+                  <div className="p-3 bg-muted/50 rounded-md">
+                    <AttachmentUpload
+                      orderId={order.id}
+                      onUploadComplete={() => {
+                        setShowUpload(null);
+                        onRefresh();
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Documents list */}
                 {order.invoices.map((invoice) => (
                   <div
                     key={invoice.id}
