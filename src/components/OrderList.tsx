@@ -17,11 +17,12 @@ interface OrderListProps {
   orders: OrderWithDetails[];
   onSelectInvoice: (invoice: Invoice) => void;
   onRefresh: () => void;
+  onCreateProforma?: (orderId: string) => void;
   onCreateCommercial?: (orderId: string, sourceInvoice?: Invoice) => void;
   onCreatePacking?: (orderId: string, sourceInvoice?: Invoice) => void;
 }
 
-export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateCommercial, onCreatePacking }: OrderListProps) => {
+export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking }: OrderListProps) => {
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [showUpload, setShowUpload] = useState<string | null>(null);
   const { toast } = useToast();
@@ -127,6 +128,14 @@ export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateCommerci
               <div className="mt-4 space-y-3 pl-7">
                 {/* Action buttons */}
                 <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onCreateProforma?.(order.id)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Proforma Invoice
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

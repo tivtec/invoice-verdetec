@@ -35,6 +35,12 @@ export interface Invoice {
   currency: string;
   paymentMethod: string;
   
+  // Port fields (for Commercial Invoice - conditional based on Incoterm)
+  portOfLoading?: string;
+  portOfDischarge?: string;
+  placeOfDelivery?: string;
+  placeOfDestination?: string;
+  
   // Items
   items: InvoiceItem[];
   

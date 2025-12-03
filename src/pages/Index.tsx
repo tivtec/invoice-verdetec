@@ -77,6 +77,12 @@ const Index = () => {
     }
   };
 
+  const handleCreateProformaInOrder = (orderId: string) => {
+    setCurrentOrderId(orderId);
+    setSelectedInvoice(undefined);
+    setView('form');
+  };
+
   const handleEdit = (invoice: Invoice) => {
     setSelectedInvoice(invoice);
     if (invoice.documentType === 'proforma') {
@@ -324,6 +330,7 @@ const Index = () => {
               orders={ordersWithDetails}
               onSelectInvoice={handleView}
               onRefresh={() => setRefreshKey(prev => prev + 1)}
+              onCreateProforma={handleCreateProformaInOrder}
               onCreateCommercial={handleCreateCommercialInOrder}
               onCreatePacking={handleCreatePackingInOrder}
             />
@@ -333,6 +340,7 @@ const Index = () => {
           <InvoiceForm 
             invoice={selectedInvoice} 
             onSave={handleSave}
+            orderId={currentOrderId}
           />
         )}
         {view === 'commercial' && (
