@@ -62,6 +62,17 @@ export const deleteOrder = async (id: string): Promise<void> => {
 
 // Invoice operations
 const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
+  // Map invoice items from snake_case to camelCase
+  const items = (dbInvoice.invoice_items || []).map((item: any) => ({
+    id: item.id,
+    hsCode: item.hs_code || '',
+    qty: item.qty || 0,
+    description: item.description || '',
+    weight: item.weight || 0,
+    unitPrice: item.unit_price || 0,
+    total: item.total || 0,
+  }));
+
   return {
     id: dbInvoice.id,
     invoiceNumber: dbInvoice.invoice_number,
@@ -69,7 +80,7 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     issueDate: dbInvoice.issue_date,
     placeOfIssue: dbInvoice.place_of_issue,
     currency: dbInvoice.currency,
-    items: dbInvoice.invoice_items || [],
+    items,
     createdAt: dbInvoice.created_at,
     updatedAt: dbInvoice.updated_at,
     companyType: dbInvoice.company_type,
