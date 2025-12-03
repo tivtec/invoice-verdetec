@@ -16,13 +16,14 @@ interface OrderWithDetails extends Order {
 interface OrderListProps {
   orders: OrderWithDetails[];
   onSelectInvoice: (invoice: Invoice) => void;
+  onEditInvoice: (invoice: Invoice) => void;
   onRefresh: () => void;
   onCreateProforma?: (orderId: string) => void;
   onCreateCommercial?: (orderId: string, sourceInvoice?: Invoice) => void;
   onCreatePacking?: (orderId: string, sourceInvoice?: Invoice) => void;
 }
 
-export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking }: OrderListProps) => {
+export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking }: OrderListProps) => {
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [showUpload, setShowUpload] = useState<string | null>(null);
   const { toast } = useToast();
@@ -179,8 +180,7 @@ export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateProforma
                 {order.invoices.map((invoice) => (
                   <div
                     key={invoice.id}
-                    className="flex items-center justify-between p-3 bg-muted rounded-md hover:bg-muted/80 cursor-pointer"
-                    onClick={() => onSelectInvoice(invoice)}
+                    className="flex items-center justify-between p-3 bg-muted rounded-md"
                   >
                     <div className="flex items-center gap-3">
                       <FileText className="h-4 w-4" />
@@ -191,7 +191,29 @@ export const OrderList = ({ orders, onSelectInvoice, onRefresh, onCreateProforma
                         </p>
                       </div>
                     </div>
-                    <span className="text-sm text-muted-foreground">{invoice.issueDate}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground mr-2">{invoice.issueDate}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditInvoice(invoice);
+                        }}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectInvoice(invoice);
+                        }}
+                      >
+                        Visualizar
+                      </Button>
+                    </div>
                   </div>
                 ))}
 

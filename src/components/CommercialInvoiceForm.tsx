@@ -26,6 +26,7 @@ const commercialSchema = z.object({
   importerCountry: z.string().min(1, 'Required field'),
   incoterm: z.string().min(1, 'Required field'),
   modeOfTransport: z.string().min(1, 'Required field'),
+  availability: z.string().optional(),
   paymentMethod: z.string().min(1, 'Required field'),
   clientRepresentative: z.string().min(1, 'Required field'),
   clientCompanyPosition: z.string().min(1, 'Required field'),
@@ -157,7 +158,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         importerCountry: data.importerCountry,
         incoterm: data.incoterm,
         modeOfTransport: data.modeOfTransport,
-        availability: '',
+        availability: data.availability || '',
         paymentMethod: data.paymentMethod,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
@@ -417,6 +418,21 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
               <Label>Payment Method *</Label>
               <Input {...register('paymentMethod')} />
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
+            </div>
+
+            <div>
+              <Label>Availability</Label>
+              <select {...register('availability')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
+                <option value="">Select availability</option>
+                <option value="Immediate">Immediate</option>
+                <option value="15 days">15 days</option>
+                <option value="30 days">30 days</option>
+                <option value="45 days">45 days</option>
+                <option value="60 days">60 days</option>
+                <option value="75 days">75 days</option>
+                <option value="90 days">90 days</option>
+                <option value="120 days">120 days</option>
+              </select>
             </div>
           </div>
 

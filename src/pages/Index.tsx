@@ -329,6 +329,7 @@ const Index = () => {
             <OrderList 
               orders={ordersWithDetails}
               onSelectInvoice={handleView}
+              onEditInvoice={handleEdit}
               onRefresh={() => setRefreshKey(prev => prev + 1)}
               onCreateProforma={handleCreateProformaInOrder}
               onCreateCommercial={handleCreateCommercialInOrder}

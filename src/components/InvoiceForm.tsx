@@ -57,7 +57,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
-      availability: '30 DAYS',
+      availability: '30 days',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
@@ -370,7 +370,16 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
 
             <div>
               <Label>Availability *</Label>
-              <Input {...register('availability')} placeholder="Ex: 30 DAYS" />
+              <select {...register('availability')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
+                <option value="Immediate">Immediate</option>
+                <option value="15 days">15 days</option>
+                <option value="30 days">30 days</option>
+                <option value="45 days">45 days</option>
+                <option value="60 days">60 days</option>
+                <option value="75 days">75 days</option>
+                <option value="90 days">90 days</option>
+                <option value="120 days">120 days</option>
+              </select>
               {errors.availability && <span className="text-sm text-destructive">{errors.availability.message}</span>}
             </div>
 
