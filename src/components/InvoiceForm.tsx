@@ -39,10 +39,11 @@ type InvoiceFormData = z.infer<typeof invoiceSchema>;
 
 interface InvoiceFormProps {
   invoice?: Invoice;
-  onSave?: (invoice: Invoice) => void;
+  onSave?: (invoice: Invoice, orderId?: string) => void;
+  orderId?: string;
 }
 
-export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
+export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
   const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
@@ -114,20 +115,25 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
 
   const onSubmit = async (data: InvoiceFormData) => {
     try {
-      const baseNumber = await getBaseNumber();
       const invoiceNumber = data.invoiceNumber || await generateInvoiceNumber();
       
-      // Create order first
-      let order = await getOrderByBaseNumber(baseNumber);
-      if (!order) {
-        order = await createOrder(baseNumber);
+      // Use provided orderId or create new order
+      let targetOrderId = orderId;
+      
+      if (!targetOrderId) {
+        const baseNumber = await getBaseNumber();
+        let order = await getOrderByBaseNumber(baseNumber);
+        if (!order) {
+          order = await createOrder(baseNumber);
+        }
+        targetOrderId = order.id;
       }
 
       const invoiceData: Invoice = {
-        id: invoice?.id || Date.now().toString(),
+        id: invoice?.id || crypto.randomUUID(),
         invoiceNumber,
         documentType: 'proforma',
-        issueDate: new Date().toLocaleDateString('en-US'),
+        issueDate: new Date().toISOString().split('T')[0],
         placeOfIssue: 'Brusque-SC-Brasil',
         currency: 'US$',
         items,
@@ -155,7 +161,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
         includePackingWeight,
       };
 
-      await saveInvoice(invoiceData, order.id);
+      await saveInvoice(invoiceData, targetOrderId);
       
       toast({
         title: 'Success!',
@@ -163,7 +169,7 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
       });
 
       if (onSave) {
-        onSave(invoiceData);
+        onSave(invoiceData, targetOrderId);
       }
     } catch (error) {
       console.error('Error saving invoice:', error);
@@ -334,7 +340,19 @@ export const InvoiceForm = ({ invoice, onSave }: InvoiceFormProps) => {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Label>INCOTERM *</Label>
-              <Input {...register('incoterm')} placeholder="Ex: EXW, FOB, CIF" />
+              <select {...register('incoterm')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
+                <option value="EXW">EXW - Ex Works</option>
+                <option value="FCA">FCA - Free Carrier</option>
+                <option value="FAS">FAS - Free Alongside Ship</option>
+                <option value="FOB">FOB - Free On Board</option>
+                <option value="CFR">CFR - Cost and Freight</option>
+                <option value="CIF">CIF - Cost, Insurance and Freight</option>
+                <option value="CPT">CPT - Carriage Paid To</option>
+                <option value="CIP">CIP - Carriage and Insurance Paid To</option>
+                <option value="DAP">DAP - Delivered at Place</option>
+                <option value="DPU">DPU - Delivered at Place Unloaded</option>
+                <option value="DDP">DDP - Delivered Duty Paid</option>
+              </select>
               {errors.incoterm && <span className="text-sm text-destructive">{errors.incoterm.message}</span>}
             </div>
 

@@ -33,6 +33,12 @@ const commercialSchema = z.object({
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
   invoiceNumber: z.string().optional(),
+  // Port fields for maritime incoterms (CIF/CFR)
+  portOfLoading: z.string().optional(),
+  portOfDischarge: z.string().optional(),
+  // Place fields for multimodal incoterms (CIP/CPT)
+  placeOfDelivery: z.string().optional(),
+  placeOfDestination: z.string().optional(),
 });
 
 type CommercialFormData = z.infer<typeof commercialSchema>;
@@ -72,6 +78,11 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   });
 
   const companyType = watch('companyType');
+  const incoterm = watch('incoterm');
+  
+  // Determine if port/place fields should be shown
+  const isMaritimeIncoterm = ['CIF', 'CFR'].includes(incoterm);
+  const isMultimodalIncoterm = ['CIP', 'CPT'].includes(incoterm);
   
   // Set default notes for Insumos when company type changes
   const currentNotes = watch('notes');
@@ -130,7 +141,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         id: crypto.randomUUID(),
         invoiceNumber,
         documentType: 'commercial',
-        issueDate: new Date().toLocaleDateString('en-US'),
+        issueDate: new Date().toISOString().split('T')[0],
         placeOfIssue: 'Brusque-SC-Brasil',
         currency: 'US$',
         items,
@@ -157,6 +168,11 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         packingWeight,
         includePackingWeight,
         showTotalWeight,
+        // Port/Place fields
+        portOfLoading: data.portOfLoading,
+        portOfDischarge: data.portOfDischarge,
+        placeOfDelivery: data.placeOfDelivery,
+        placeOfDestination: data.placeOfDestination,
       };
 
       let targetOrderId = orderId;
@@ -369,7 +385,19 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>INCOTERM *</Label>
-              <Input {...register('incoterm')} placeholder="Ex: EXW, FOB, CIF" />
+              <select {...register('incoterm')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
+                <option value="EXW">EXW - Ex Works</option>
+                <option value="FCA">FCA - Free Carrier</option>
+                <option value="FAS">FAS - Free Alongside Ship</option>
+                <option value="FOB">FOB - Free On Board</option>
+                <option value="CFR">CFR - Cost and Freight</option>
+                <option value="CIF">CIF - Cost, Insurance and Freight</option>
+                <option value="CPT">CPT - Carriage Paid To</option>
+                <option value="CIP">CIP - Carriage and Insurance Paid To</option>
+                <option value="DAP">DAP - Delivered at Place</option>
+                <option value="DPU">DPU - Delivered at Place Unloaded</option>
+                <option value="DDP">DDP - Delivered Duty Paid</option>
+              </select>
               {errors.incoterm && <span className="text-sm text-destructive">{errors.incoterm.message}</span>}
             </div>
 
@@ -391,6 +419,34 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
             </div>
           </div>
+
+          {/* Maritime Incoterms - Port fields (CIF/CFR) */}
+          {isMaritimeIncoterm && (
+            <div className="grid grid-cols-2 gap-4 mt-4 p-4 border rounded-md bg-muted/30">
+              <div>
+                <Label>Port of Loading *</Label>
+                <Input {...register('portOfLoading', { required: isMaritimeIncoterm })} placeholder="e.g., Port of Santos" />
+              </div>
+              <div>
+                <Label>Port of Discharge *</Label>
+                <Input {...register('portOfDischarge', { required: isMaritimeIncoterm })} placeholder="e.g., Port of Miami" />
+              </div>
+            </div>
+          )}
+
+          {/* Multimodal Incoterms - Place fields (CIP/CPT) */}
+          {isMultimodalIncoterm && (
+            <div className="grid grid-cols-2 gap-4 mt-4 p-4 border rounded-md bg-muted/30">
+              <div>
+                <Label>Place of Delivery (optional)</Label>
+                <Input {...register('placeOfDelivery')} placeholder="e.g., Warehouse Address" />
+              </div>
+              <div>
+                <Label>Place of Destination (optional)</Label>
+                <Input {...register('placeOfDestination')} placeholder="e.g., Final Destination" />
+              </div>
+            </div>
+          )}
 
           <h3 className="font-semibold text-lg mt-6">Items</h3>
           
