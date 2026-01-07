@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generatePackingListNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters, getInvoicesByOrderId } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -17,6 +17,7 @@ import { InvoicePrintPreview } from './InvoicePrintPreview';
 
 const packingSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
+  exporterAddressKey: z.enum(['insumos_rio_negrinho', 'insumos_itajai']).optional(),
   importerCompanyName: z.string().min(1, 'Required field'),
   importerTaxId: z.string().min(1, 'Required field'),
   importerAddress: z.string().min(1, 'Required field'),
@@ -38,6 +39,13 @@ const packingSchema = z.object({
 }).superRefine((data, ctx) => {
   const incoterm = (data.incoterm || '').trim().toUpperCase();
   const requiresPorts = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incoterm);
+  if (data.companyType === 'insumos' && !data.exporterAddressKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['exporterAddressKey'],
+      message: 'Select origin address',
+    });
+  }
   if (requiresPorts) {
     if (!data.portOfLoading?.trim()) {
       ctx.addIssue({
@@ -109,8 +117,9 @@ Packing Specifications:`;
         : packingListDefaultNotes,
     } : {
       companyType: 'equipamentos',
+      exporterAddressKey: undefined,
       incoterm: 'EXW',
-      modeOfTransport: 'SEA FREIGHT',
+      modeOfTransport: 'To be arranged and paid by the importer',
       portOfLoading: '',
       portOfDischarge: '',
       placeOfDelivery: '',
@@ -123,11 +132,22 @@ Packing Specifications:`;
   });
 
   const companyType = watch('companyType');
+  const exporterAddressKey = watch('exporterAddressKey') as InsumosAddressKey | undefined;
+  const resolvedCompany = getCompanyData(companyType, exporterAddressKey);
   const incoterm = (watch('incoterm') || '').toUpperCase();
   const showPortLoading = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incoterm);
   const showPortDischarge = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incoterm);
   const showPlaceOfDelivery = ['CPT', 'CIP', 'FCA'].includes(incoterm);
   const showPlaceOfDestination = ['CPT', 'CIP', 'DAP', 'DPU', 'DDP'].includes(incoterm);
+
+  useEffect(() => {
+    if (companyType === 'insumos' && !exporterAddressKey) {
+      setValue('exporterAddressKey', 'insumos_rio_negrinho');
+    }
+    if (companyType !== 'insumos' && exporterAddressKey) {
+      setValue('exporterAddressKey', undefined);
+    }
+  }, [companyType, exporterAddressKey, setValue]);
 
   useEffect(() => {
     if (companyType !== 'insumos') return;
@@ -254,6 +274,26 @@ Packing Specifications:`;
     }
   };
 
+  const normalizeNumber = (val: any) => {
+    if (typeof val === 'string') {
+      const cleaned = val.replace(',', '.');
+      const parsed = parseFloat(cleaned);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    const num = Number(val);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const computeItemTotalWeight = (item: InvoiceItem) => {
+    const qtyNum = normalizeNumber(item.qty);
+    const weightNum = normalizeNumber(item.weight);
+    if (companyType === 'insumos') {
+      // For INSUMOS: qty already represents KG; fall back to weight if needed
+      return qtyNum || weightNum;
+    }
+    return weightNum * qtyNum;
+  };
+
   const getTotalPackingWeight = () => {
     if (!includePackingWeight) return 0;
     if (manualPackingWeight > 0) return manualPackingWeight;
@@ -323,12 +363,13 @@ Packing Specifications:`;
         orderId: targetOrderId,
         issueDate: new Date().toLocaleDateString('en-US'),
         placeOfIssue: 'Brusque-SC-Brazil',
-        currency: 'US$',
-        items,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        companyType: data.companyType,
-        importerCompanyName: data.importerCompanyName,
+      currency: 'US$',
+      items,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      companyType: data.companyType,
+      exporterAddressKey: data.exporterAddressKey,
+      importerCompanyName: data.importerCompanyName,
         importerTaxId: data.importerTaxId,
         importerAddress: data.importerAddress,
         importerZipCode: data.importerZipCode,
@@ -410,6 +451,7 @@ Packing Specifications:`;
       createdAt: invoice?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       companyType: data.companyType,
+      exporterAddressKey: data.exporterAddressKey,
       importerCompanyName: data.importerCompanyName,
       importerTaxId: data.importerTaxId,
       importerAddress: data.importerAddress,
@@ -462,6 +504,7 @@ Packing Specifications:`;
       createdAt: invoice?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       companyType: data.companyType,
+      exporterAddressKey: data.exporterAddressKey,
       importerCompanyName: data.importerCompanyName,
       importerTaxId: data.importerTaxId,
       importerAddress: data.importerAddress,
@@ -493,7 +536,7 @@ Packing Specifications:`;
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
-  const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
+  const itemsWeight = items.reduce((sum, item) => sum + computeItemTotalWeight(item), 0);
   const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
   const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
@@ -512,6 +555,20 @@ Packing Specifications:`;
                 <option value="insumos">INSUMOS HIDROSSEMEADURA VERDETEC LTDA</option>
               </select>
             </div>
+            {companyType === 'insumos' && (
+              <div>
+                <Label>Selecionar Endereço de Origem *</Label>
+                <select
+                  {...register('exporterAddressKey')}
+                  className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2"
+                >
+                  <option value="">Selecione...</option>
+                  <option value="insumos_itajai">ITAJAI – Unidade Campeche</option>
+                  <option value="insumos_rio_negrinho">RIO NEGRINHO – Unidade Volta Grande</option>
+                </select>
+                {errors.exporterAddressKey && <span className="text-sm text-destructive">{errors.exporterAddressKey.message}</span>}
+              </div>
+            )}
 
             <div>
               <Label>Document Number *</Label>
@@ -522,11 +579,11 @@ Packing Specifications:`;
 
           <div className="bg-muted p-4 rounded-md">
             <h3 className="font-semibold mb-2">Exporter Data</h3>
-            <p className="text-sm">{COMPANY_DATA[companyType].name}</p>
-            <p className="text-sm">CNPJ: {COMPANY_DATA[companyType].cnpj}</p>
-            <p className="text-sm">{COMPANY_DATA[companyType].address}</p>
-            <p className="text-sm">ZIP Code: {COMPANY_DATA[companyType].zipCode}</p>
-            <p className="text-sm">Phone: {COMPANY_DATA[companyType].phone}</p>
+            <p className="text-sm">{resolvedCompany.name}</p>
+            <p className="text-sm">CNPJ: {resolvedCompany.cnpj}</p>
+            <p className="text-sm">{resolvedCompany.address}</p>
+            <p className="text-sm">ZIP Code: {resolvedCompany.zipCode}</p>
+            <p className="text-sm">Phone: {resolvedCompany.phone}</p>
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Importer / Buyer Data</h3>
@@ -615,6 +672,7 @@ Packing Specifications:`;
                 <option value="BY ROAD">BY ROAD</option>
                 <option value="COURIER">COURIER</option>
                 <option value="MULTIMODAL">MULTIMODAL</option>
+                <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>

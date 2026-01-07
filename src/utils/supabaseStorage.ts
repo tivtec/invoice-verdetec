@@ -16,6 +16,7 @@ const insertOrder = async (baseNumber: string, attempt = 1): Promise<Order> => {
     .insert({
       order_number: orderNumber,
       base_number: baseNumber,
+      order_note: null,
       created_at: timestamp,
       updated_at: timestamp,
     })
@@ -86,6 +87,21 @@ export const deleteOrder = async (id: string): Promise<void> => {
   if (error) throw error;
 };
 
+export const updateOrderNote = async (id: string, note: string | null) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      order_note: note,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Order | null;
+};
+
 // Invoice operations
 const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
   // Map invoice items from snake_case to camelCase
@@ -114,6 +130,7 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     createdAt: dbInvoice.created_at,
     updatedAt: dbInvoice.updated_at,
     companyType: dbInvoice.company_type,
+    exporterAddressKey: dbInvoice.exporter_address_key || undefined,
     portOfLoading: dbInvoice.port_of_loading || (dbInvoice as any).Port_of_loading || '',
     portOfDischarge: dbInvoice.port_of_discharge || (dbInvoice as any).Port_of_discharge || '',
     placeOfDelivery: dbInvoice.place_of_delivery || (dbInvoice as any).Place_of_delivery || '',
@@ -140,6 +157,8 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     packingWeight: dbInvoice.packing_weight || itemPackingWeight || 0,
     includePackingWeight: dbInvoice.include_packing_weight ?? false,
     totalPackingWeight: dbInvoice.packing_weight || itemPackingWeight || 0,
+    applyDiscount: dbInvoice.apply_discount ?? (dbInvoice as any).Apply_discount ?? false,
+    discountAmount: dbInvoice.discount_amount ?? (dbInvoice as any).Discount_amount ?? 0,
   };
 };
 
@@ -193,6 +212,7 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     place_of_issue: invoice.placeOfIssue,
     currency: invoice.currency,
     company_type: invoice.companyType,
+    exporter_address_key: invoice.exporterAddressKey || null,
     importer_id: importerId,
     order_id: orderId,
     incoterm: invoice.incoterm,
@@ -213,6 +233,8 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     show_total_weight: invoice.showTotalWeight ?? true,
     packing_weight: invoice.packingWeight || null,
     include_packing_weight: invoice.includePackingWeight ?? false,
+    apply_discount: invoice.applyDiscount ?? false,
+    discount_amount: invoice.applyDiscount ? invoice.discountAmount ?? 0 : 0,
   };
 
   // Reuse existing invoice id when the invoice number already exists to avoid FK conflicts
@@ -256,7 +278,22 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     delete uppercasePayload.port_of_discharge;
     delete uppercasePayload.place_of_delivery;
     delete uppercasePayload.place_of_destination;
+    uppercasePayload.Apply_discount = uppercasePayload.apply_discount;
+    uppercasePayload.Discount_amount = uppercasePayload.discount_amount;
+    delete uppercasePayload.apply_discount;
+    delete uppercasePayload.discount_amount;
     ({ data: savedInvoice, error: invoiceError } = await tryUpsert(uppercasePayload));
+  }
+
+  const missingDiscountCols =
+    (invoiceError as any)?.message?.toLowerCase().includes('discount') ||
+    (invoiceError as any)?.details?.toLowerCase().includes('discount');
+
+  if (invoiceError && missingDiscountCols) {
+    const fallbackPayload = { ...invoiceData };
+    delete (fallbackPayload as any).apply_discount;
+    delete (fallbackPayload as any).discount_amount;
+    ({ data: savedInvoice, error: invoiceError } = await tryUpsert(fallbackPayload));
   }
 
   if (invoiceError) throw invoiceError;

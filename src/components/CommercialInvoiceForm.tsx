@@ -9,14 +9,16 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generateCommercialInvoiceNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
+import { formatInvoiceAmount } from '@/utils/numberFormat';
 
 const commercialSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
+  exporterAddressKey: z.enum(['insumos_rio_negrinho', 'insumos_itajai']).optional(),
   importerCompanyName: z.string().min(1, 'Required field'),
   importerTaxId: z.string().min(1, 'Required field'),
   importerAddress: z.string().min(1, 'Required field'),
@@ -41,6 +43,14 @@ const commercialSchema = z.object({
   placeOfDestination: z.string().optional(),
   freightCost: z.coerce.number().optional(),
   insuranceCost: z.coerce.number().optional(),
+}).superRefine((data, ctx) => {
+  if (data.companyType === 'insumos' && !data.exporterAddressKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['exporterAddressKey'],
+      message: 'Select origin address',
+    });
+  }
 });
 
 type CommercialFormData = z.infer<typeof commercialSchema>;
@@ -54,6 +64,7 @@ interface CommercialInvoiceFormProps {
 export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialInvoiceFormProps) => {
   const suggestedRepName = 'Caroline Franzen';
   const suggestedRepTitle = 'Verdetec Administrative Manager';
+  const currencyLabel = 'US$';
   const normalizeRepName = (name?: string) => {
     const trimmed = (name || '').trim();
     if (!trimmed || trimmed === 'Rafael Hermes') return suggestedRepName;
@@ -75,6 +86,9 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
   const [importers, setImporters] = useState<any[]>([]);
   const [selectedImporterId, setSelectedImporterId] = useState<string>('');
+  const [applyDiscount, setApplyDiscount] = useState<boolean>(invoice?.applyDiscount ?? ((invoice?.discountAmount || 0) > 0));
+  const [discountAmount, setDiscountAmount] = useState<number>(invoice?.discountAmount ?? 0);
+  const [autoNoteApplied, setAutoNoteApplied] = useState(false);
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<CommercialFormData>({
     resolver: zodResolver(commercialSchema),
@@ -87,8 +101,9 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       clientPositionTitle: normalizeRepTitle(invoice.clientPositionTitle),
     } : {
       companyType: 'equipamentos',
+      exporterAddressKey: undefined,
       incoterm: 'EXW',
-      modeOfTransport: 'SEA FREIGHT',
+      modeOfTransport: 'To be arranged and paid by the importer',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: suggestedRepName,
       clientPositionTitle: suggestedRepTitle,
@@ -99,6 +114,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   });
 
   const companyType = watch('companyType');
+  const exporterAddressKey = watch('exporterAddressKey') as InsumosAddressKey | undefined;
+  const resolvedCompany = getCompanyData(companyType, exporterAddressKey);
   const incoterm = watch('incoterm');
   const showFreightCost = ['CFR', 'CPT', 'CIF', 'CIP'].includes(incoterm);
   const showInsuranceCost = ['CIF', 'CIP'].includes(incoterm);
@@ -117,6 +134,43 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   const isMultimodalIncoterm = showPlaceOfDelivery || showPlaceOfDestination;
   const freightCostValue = showFreightCost ? Number(watch('freightCost') || 0) : 0;
   const insuranceCostValue = showInsuranceCost ? Number(watch('insuranceCost') || 0) : 0;
+  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const insumosNoteSuggestion = 'Unit price refers to price per kilogram (Kg).\n\nPacking Specifications:';
+  const notesValue = watch('notes');
+  const notePlaceholder = companyType === 'insumos'
+    ? insumosNoteSuggestion
+    : 'Add notes that will appear at the bottom of the invoice (optional)';
+
+  useEffect(() => {
+    if (!applyDiscount) return;
+    if (discountAmount > subtotal) {
+      setDiscountAmount(subtotal);
+    }
+  }, [applyDiscount, discountAmount, subtotal]);
+
+  useEffect(() => {
+    if (companyType === 'insumos' && !exporterAddressKey) {
+      setValue('exporterAddressKey', 'insumos_rio_negrinho');
+    }
+    if (companyType !== 'insumos' && exporterAddressKey) {
+      setValue('exporterAddressKey', undefined);
+    }
+  }, [companyType, exporterAddressKey, setValue]);
+  useEffect(() => {
+    if (companyType === 'insumos') {
+      if (!autoNoteApplied && !notesValue) {
+        setValue('notes', insumosNoteSuggestion);
+        setAutoNoteApplied(true);
+      }
+      return;
+    }
+    if (notesValue === insumosNoteSuggestion) {
+      setValue('notes', '');
+    }
+    if (autoNoteApplied) {
+      setAutoNoteApplied(false);
+    }
+  }, [autoNoteApplied, companyType, insumosNoteSuggestion, notesValue, setValue]);
   
   // Clear freight/insurance when Incoterm does not require
   if (!showFreightCost && watch('freightCost')) {
@@ -272,6 +326,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
 
       const invoiceNumber = `CI-${baseNumber}`;
       const totalPackingWeight = getTotalPackingWeight();
+      const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
 
       let targetOrderId = orderId || invoice?.orderId;
       let existingOrder = await getOrderByBaseNumber(baseNumber);
@@ -311,6 +366,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         paymentMethod: data.paymentMethod,
         freightCost: showFreightCost ? data.freightCost : undefined,
         insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
+        applyDiscount,
+        discountAmount: discountValue,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
         clientPosition: data.clientPosition || 'Caroline Franzen',
@@ -369,6 +426,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     const invoiceNumber = `CI-${baseNumber}`;
     const repName = normalizeRepName(data.clientPosition);
     const repTitle = normalizeRepTitle(data.clientPositionTitle);
+    const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
 
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
@@ -378,11 +436,12 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brazil',
       currency: 'US$',
-      items,
-      createdAt: invoice?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      companyType: data.companyType,
-      importerCompanyName: data.importerCompanyName,
+        items,
+        createdAt: invoice?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        companyType: data.companyType,
+        exporterAddressKey: data.exporterAddressKey,
+        importerCompanyName: data.importerCompanyName,
       importerTaxId: data.importerTaxId,
       importerAddress: data.importerAddress,
       importerZipCode: data.importerZipCode,
@@ -395,6 +454,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       paymentMethod: data.paymentMethod,
       freightCost: showFreightCost ? data.freightCost : undefined,
       insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
+      applyDiscount,
+      discountAmount: discountValue,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: repName,
@@ -422,6 +483,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
     const repName = normalizeRepName(data.clientPosition);
     const repTitle = normalizeRepTitle(data.clientPositionTitle);
+    const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
 
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
@@ -435,6 +497,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       createdAt: invoice?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       companyType: data.companyType,
+      exporterAddressKey: data.exporterAddressKey,
       importerCompanyName: data.importerCompanyName,
       importerTaxId: data.importerTaxId,
       importerAddress: data.importerAddress,
@@ -448,6 +511,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       paymentMethod: data.paymentMethod,
       freightCost: showFreightCost ? data.freightCost : undefined,
       insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
+      applyDiscount,
+      discountAmount: discountValue,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
       clientPosition: repName,
@@ -467,7 +532,6 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
-  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const itemsWeight = items.reduce((sum, item) => {
     if (companyType === 'insumos') {
       const kg = item.qty || item.weight || 0;
@@ -477,12 +541,14 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   }, 0);
   const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
   const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
-  const totalAmount =
+  const totalAmountBeforeDiscount =
     ['CIF', 'CIP'].includes(incoterm)
       ? subtotal + freightCostValue + insuranceCostValue
       : ['CFR', 'CPT'].includes(incoterm)
         ? subtotal + freightCostValue
         : subtotal;
+  const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
+  const totalAmount = Math.max(totalAmountBeforeDiscount - discountValue, 0);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -498,6 +564,20 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                 <option value="insumos">INSUMOS HIDROSSEMEADURA VERDETEC LTDA</option>
               </select>
             </div>
+            {companyType === 'insumos' && (
+              <div>
+                <Label>Selecionar Endereço de Origem *</Label>
+                <select
+                  {...register('exporterAddressKey')}
+                  className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2"
+                >
+                  <option value="">Selecione...</option>
+                  <option value="insumos_itajai">ITAJAI – Unidade Campeche</option>
+                  <option value="insumos_rio_negrinho">RIO NEGRINHO – Unidade Volta Grande</option>
+                </select>
+                {errors.exporterAddressKey && <span className="text-sm text-destructive">{errors.exporterAddressKey.message}</span>}
+              </div>
+            )}
 
             <div>
               <Label>Invoice Number *</Label>
@@ -508,11 +588,11 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
 
           <div className="bg-muted p-4 rounded-md">
             <h3 className="font-semibold mb-2">Exporter Data</h3>
-            <p className="text-sm">{COMPANY_DATA[companyType].name}</p>
-            <p className="text-sm">CNPJ: {COMPANY_DATA[companyType].cnpj}</p>
-            <p className="text-sm">{COMPANY_DATA[companyType].address}</p>
-            <p className="text-sm">ZIP Code: {COMPANY_DATA[companyType].zipCode}</p>
-            <p className="text-sm">Phone: {COMPANY_DATA[companyType].phone}</p>
+            <p className="text-sm">{resolvedCompany.name}</p>
+            <p className="text-sm">CNPJ: {resolvedCompany.cnpj}</p>
+            <p className="text-sm">{resolvedCompany.address}</p>
+            <p className="text-sm">ZIP Code: {resolvedCompany.zipCode}</p>
+            <p className="text-sm">Phone: {resolvedCompany.phone}</p>
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Importer / Buyer Data</h3>
@@ -613,6 +693,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                 <option value="BY ROAD">BY ROAD</option>
                 <option value="COURIER">COURIER</option>
                 <option value="MULTIMODAL">MULTIMODAL</option>
+                <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>
@@ -708,7 +789,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                   <div className="flex-1">
                     <Label className="text-xs">Total</Label>
                     <Input 
-                      value={`$${item.total.toFixed(2)}`}
+                      value={`${currencyLabel} ${formatInvoiceAmount(item.total, currencyLabel)}`}
                       disabled
                     />
                   </div>
@@ -774,16 +855,52 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                 </div>
               )}
               <div className="flex justify-end">
-                <span>Subtotal (Merchandise): ${subtotal.toFixed(2)}</span>
+                <span>Subtotal (Merchandise): {currencyLabel} {formatInvoiceAmount(subtotal, currencyLabel)}</span>
               </div>
               {(freightCostValue > 0 || insuranceCostValue > 0) && (
                 <div className="flex justify-end gap-6 text-sm mt-1">
-                  {freightCostValue > 0 && <span>+ Freight: ${freightCostValue.toFixed(2)}</span>}
-                  {insuranceCostValue > 0 && <span>+ Insurance: ${insuranceCostValue.toFixed(2)}</span>}
+                  {freightCostValue > 0 && (
+                    <span>+ Freight: {currencyLabel} {formatInvoiceAmount(freightCostValue, currencyLabel)}</span>
+                  )}
+                  {insuranceCostValue > 0 && (
+                    <span>+ Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCostValue, currencyLabel)}</span>
+                  )}
+                </div>
+              )}
+              <div className="flex justify-end items-center gap-3 mt-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="applyDiscountCI"
+                    checked={applyDiscount}
+                    onCheckedChange={(checked) => setApplyDiscount(checked as boolean)}
+                  />
+                  <Label htmlFor="applyDiscountCI" className="cursor-pointer text-sm">
+                    Apply Discount
+                  </Label>
+                </div>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={subtotal}
+                  disabled={!applyDiscount}
+                  value={discountAmount || 0}
+                  onChange={(e) => {
+                    const parsed = parseFloat(e.target.value);
+                    const sanitized = Number.isFinite(parsed) ? parsed : 0;
+                    const clamped = Math.min(Math.max(sanitized, 0), subtotal);
+                    setDiscountAmount(clamped);
+                  }}
+                  className="w-32"
+                />
+              </div>
+              {applyDiscount && discountAmount > 0 && (
+                <div className="flex justify-end text-destructive text-sm">
+                  <span>Discount: -{currencyLabel} {formatInvoiceAmount(discountValue, currencyLabel)}</span>
                 </div>
               )}
               <div className="flex justify-end font-bold text-lg">
-                Total: ${totalAmount.toFixed(2)}
+                Total Amount: {currencyLabel} {formatInvoiceAmount(totalAmount, currencyLabel)}
               </div>
             </div>
           </div>
@@ -821,7 +938,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
             <Label>Notes</Label>
             <Textarea 
               {...register('notes')} 
-              placeholder="Add notes that will appear at the bottom of the invoice (optional)"
+              placeholder={notePlaceholder}
               rows={3}
             />
           </div>

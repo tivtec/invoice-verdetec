@@ -221,11 +221,12 @@ const Index = () => {
             const orderNumberMatch =
               order.order_number?.toLowerCase().includes(query) ||
               order.base_number?.toLowerCase().includes(query);
+            const orderNoteMatch = (order.order_note || '').toLowerCase().includes(query);
             const invoiceMatch = order.invoices.some((inv: Invoice) =>
               (inv.invoiceNumber?.toLowerCase().includes(query) ||
                 inv.importerCompanyName?.toLowerCase().includes(query))
             );
-            return orderNumberMatch || invoiceMatch;
+            return orderNumberMatch || orderNoteMatch || invoiceMatch;
           });
           setOrdersWithDetails(filtered);
         } else {

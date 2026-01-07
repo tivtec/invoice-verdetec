@@ -1,4 +1,5 @@
 export type CompanyType = 'equipamentos' | 'insumos';
+export type InsumosAddressKey = 'insumos_rio_negrinho' | 'insumos_itajai';
 export type DocumentType = 'proforma' | 'commercial' | 'packing';
 
 export interface InvoiceItem {
@@ -65,6 +66,10 @@ export interface Invoice {
   packingWeight?: number;
   includePackingWeight?: boolean;
   totalPackingWeight?: number;
+  exporterAddressKey?: InsumosAddressKey;
+  // Discounts
+  applyDiscount?: boolean;
+  discountAmount?: number;
   
   createdAt: string;
   updatedAt: string;
@@ -93,6 +98,27 @@ export const COMPANY_DATA = {
       bank: 'Banco do Brasil – City of Brusque/SC',
       swift: 'BRASBRRJCTA',
       iban: 'BR9000000000083150000002674C1'
-    }
+    },
+    branches: {
+      insumos_rio_negrinho: {
+        address: 'Rua Mário Murara, nº 2.735, Distrito de Volta Grande, Rio Negrinho-SC',
+        zipCode: '89299-506',
+      },
+      insumos_itajai: {
+        address: 'Rua Vergílio Cadore, 9259, Campeche, Itajaí, SC, Brasil',
+        zipCode: '88318-995',
+      },
+    },
   }
 } as const;
+
+// Helper to resolve company data with branch selection for Insumos
+export const getCompanyData = (companyType: CompanyType, exporterAddressKey?: InsumosAddressKey) => {
+  if (companyType !== 'insumos') return COMPANY_DATA[companyType];
+  const branch = COMPANY_DATA.insumos.branches[exporterAddressKey || 'insumos_rio_negrinho'];
+  return {
+    ...COMPANY_DATA.insumos,
+    address: branch.address,
+    zipCode: branch.zipCode,
+  };
+};

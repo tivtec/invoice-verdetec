@@ -2,6 +2,7 @@ export interface Order {
   id: string;
   order_number: string;
   base_number: string;
+  order_note?: string | null;
   created_at: string;
   updated_at: string;
 }

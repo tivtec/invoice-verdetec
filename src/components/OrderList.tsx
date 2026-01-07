@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2, Plus, Upload } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2, Plus, Upload, Pencil, Check, X } from 'lucide-react';
 import { Order, Attachment } from '@/types/order';
 import { Invoice } from '@/types/invoice';
-import { getAttachmentUrl, deleteAttachment, deleteOrder, deleteInvoice } from '@/utils/supabaseStorage';
+import { getAttachmentUrl, deleteAttachment, deleteOrder, deleteInvoice, updateOrderNote } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentUpload } from './AttachmentUpload';
 
@@ -27,6 +28,9 @@ interface OrderListProps {
 export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking, expandOrderId }: OrderListProps) => {
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [showUpload, setShowUpload] = useState<string | null>(null);
+  const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
+  const [savingNoteId, setSavingNoteId] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const { toast } = useToast();
 
   // auto expand newly created order when passed in
@@ -115,11 +119,40 @@ export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, o
     }
   };
 
+  // hydrate notes when orders change
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    orders.forEach((order) => {
+      next[order.id] = order.order_note || '';
+    });
+    setOrderNotes(next);
+  }, [orders]);
+
+  const handleSaveNote = async (orderId: string) => {
+    try {
+      setSavingNoteId(orderId);
+      const note = orderNotes[orderId] || null;
+      await updateOrderNote(orderId, note);
+      toast({ title: 'Obs. salva' });
+      onRefresh();
+      setEditingNoteId(null);
+    } catch (error) {
+      console.error('Error updating order note', error);
+      toast({ title: 'Erro ao salvar observação', variant: 'destructive' });
+    } finally {
+      setSavingNoteId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {orders.map((order) => {
         const isExpanded = expandedOrders.has(order.id);
         const isEmpty = order.invoices.length === 0 && order.attachments.length === 0;
+        const firstInvoice = order.invoices[0];
+        const importerSummary = firstInvoice
+          ? `${firstInvoice.importerCompanyName} — ${firstInvoice.importerCountry}`
+          : '';
         
         return (
           <Card key={order.id} className="p-4">
@@ -133,8 +166,59 @@ export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, o
                 <span className="text-sm text-muted-foreground">
                   ({order.invoices.length} document{order.invoices.length !== 1 ? 's' : ''})
                 </span>
+                {importerSummary && (
+                  <span className="text-sm text-muted-foreground truncate max-w-md">
+                    • {importerSummary}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  {editingNoteId === order.id ? (
+                    <>
+                      <Input
+                        value={orderNotes[order.id] ?? ''}
+                        onChange={(e) => setOrderNotes((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                        placeholder="Obs."
+                        className="w-72"
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        disabled={savingNoteId === order.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSaveNote(order.id);
+                        }}
+                        title="Salvar observação"
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOrderNotes((prev) => ({ ...prev, [order.id]: order.order_note || '' }));
+                          setEditingNoteId(null);
+                        }}
+                        title="Cancelar"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <button
+                      className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-2"
+                      onClick={() => setEditingNoteId(order.id)}
+                    >
+                      <span className="truncate max-w-[220px]">
+                        {orderNotes[order.id]?.trim() ? orderNotes[order.id] : 'Obs.'}
+                      </span>
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 <span className="text-sm text-muted-foreground">
                   {new Date(order.created_at).toLocaleDateString()}
                 </span>

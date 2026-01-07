@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Invoice, COMPANY_DATA } from '@/types/invoice';
+import { Invoice, getCompanyData } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import verdetecLogo from '@/assets/verdetec-logo.png';
+import { formatInvoiceAmount } from '@/utils/numberFormat';
 
 interface InvoicePrintPreviewProps {
   invoice: Invoice;
@@ -41,8 +42,9 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
     window.print();
   };
 
-  const company = COMPANY_DATA[invoice.companyType];
+  const company = getCompanyData(invoice.companyType, invoice.exporterAddressKey);
   const incotermCode = (invoice.incoterm || '').toUpperCase();
+  const currencyLabel = invoice.currency || 'US$';
   const showPortLoading = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incotermCode);
   const showPortDischarge = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incotermCode);
   const showPlaceOfDelivery = ['CPT', 'CIP', 'FCA'].includes(incotermCode);
@@ -93,12 +95,14 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
   const showInsuranceLine =
     ['commercial', 'proforma'].includes(invoice.documentType) &&
     (insuranceCost > 0 || ['CIF', 'CIP'].includes(incotermCode));
-  const totalAmount =
+  const discountValue = invoice.applyDiscount ? Math.min(Math.max(invoice.discountAmount || 0, 0), subtotal) : 0;
+  const totalAmountBeforeDiscount =
     ['CIF', 'CIP'].includes(incotermCode)
       ? subtotal + freightCost + insuranceCost
       : ['CFR', 'CPT'].includes(incotermCode)
         ? subtotal + freightCost
         : subtotal;
+  const totalAmount = Math.max(totalAmountBeforeDiscount - discountValue, 0);
   const documentTitle = invoice.documentType === 'proforma' ? 'PROFORMA INVOICE' : 
                         invoice.documentType === 'commercial' ? 'COMMERCIAL INVOICE' : 
                         'PACKING LIST';
@@ -182,7 +186,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
               <h3 className="font-semibold mb-1 text-sm">Supplier / Exporter:</h3>
               <p className="font-bold text-sm">{company.name}</p>
               <p className="text-xs">CNPJ: {company.cnpj}</p>
-              <p className="text-xs">{company.address}</p>
+              <p className="text-xs whitespace-nowrap">{company.address}</p>
               <p className="text-xs">ZIP Code: {company.zipCode}</p>
               <p className="text-xs">Phone: {company.phone}</p>
               <p className="text-xs">Country of Origin: Brazil</p>
@@ -210,6 +214,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
             
             <div className="text-right">
               <p className="text-xs"><span className="font-semibold">INCOTERM:</span> {invoice.incoterm}</p>
+              <p className="text-xs"><span className="font-semibold">Currency:</span> {invoice.currency || 'USD'}</p>
               <p className="text-xs"><span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport}</p>
               {invoice.availability && invoice.documentType === 'proforma' && (
                 <p className="text-xs"><span className="font-semibold">Availability:</span> {invoice.availability}</p>
@@ -232,22 +237,6 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                 </span>{' '}
                 {invoice.paymentMethod}
               </p>
-              {invoice.documentType === 'commercial' && (
-                <>
-                  {showPortLoading && invoice.portOfLoading && (
-                    <p className="text-xs"><span className="font-semibold">Port of Loading:</span> {invoice.portOfLoading}</p>
-                  )}
-                  {showPortDischarge && invoice.portOfDischarge && (
-                    <p className="text-xs"><span className="font-semibold">Port of Discharge:</span> {invoice.portOfDischarge}</p>
-                  )}
-                  {showPlaceOfDestination && invoice.placeOfDestination && (
-                    <p className="text-xs"><span className="font-semibold">Named Place of Destination:</span> {invoice.placeOfDestination}</p>
-                  )}
-                  {showPlaceOfDelivery && invoice.placeOfDelivery && (
-                    <p className="text-xs"><span className="font-semibold">Final Delivery Location:</span> {invoice.placeOfDelivery}</p>
-                  )}
-                </>
-              )}
               {invoice.documentType === 'packing' && invoice.sourceInvoiceId && (
                 <p className="text-xs"><span className="font-semibold">Packing List related to Commercial Invoice Nº:</span> {invoice.sourceInvoiceId}</p>
               )}
@@ -291,61 +280,96 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                   )}
                   {!isPackingList && (
                     <td className="text-right py-2 px-2 text-sm">
-                      ${item.unitPrice.toFixed(2)}
+                      {currencyLabel} {formatInvoiceAmount(item.unitPrice, currencyLabel)}
                     </td>
                   )}
-                  {!isPackingList && <td className="text-right py-2 px-2 text-sm">${item.total.toFixed(2)}</td>}
-                  {isPackingList && (
+                  {!isPackingList && (
                     <td className="text-right py-2 px-2 text-sm">
-                      {computeItemTotalWeight(item).toFixed(2)}
+                      {currencyLabel} {formatInvoiceAmount(item.total, currencyLabel)}
                     </td>
                   )}
-                </tr>
-              ))}
-              {invoice.includePackingWeight && totalPackingWeight > 0 && (
-                <tr className="border-b">
-                  <td colSpan={3} className="py-2 px-2 text-sm text-right">Packing Weight:</td>
-                  <td className="text-right py-2 px-2 text-sm">{totalPackingWeight.toFixed(2)} KG</td>
-                  <td className="py-2 px-2 text-sm"></td>
-                  <td className="py-2 px-2 text-sm"></td>
-                </tr>
+                  {isPackingList && (
+                <td className="text-right py-2 px-2 text-sm">
+                  {computeItemTotalWeight(item).toFixed(2)}
+                </td>
               )}
-              {isLastPage && (
-                <tr className="border-t-2 border-foreground font-semibold">
-                  {isPackingList ? (
-                    <>
-                      {showTotalWeight ? (
-                        <>
-                          <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight (kg):</td>
-                          <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
-                        </>
-                      ) : (
-                        <td colSpan={4} className="py-2 px-2 text-sm"></td>
-                      )}
-                    </>
-                  ) : showTotalWeight ? (
-                    <>
-                      <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight (kg):</td>
-                      {invoice.companyType !== 'insumos' ? (
-                        <>
-                          <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
-                          <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                          <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
-                          <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                          <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
-                        </>
-                      )}
-                    </>
+            </tr>
+          ))}
+          {!isPackingList && isLastPage && (
+            <>
+              {invoice.includePackingWeight && totalPackingWeight > 0 && (
+                <tr>
+                  {!isPackingList ? (
+                    invoice.companyType !== 'insumos' ? (
+                      <>
+                        <td className="py-2 px-2 text-sm"></td>
+                        <td className="py-2 px-2 text-sm"></td>
+                        <td className="py-2 px-2 text-sm text-right">Packing Weight (kg):</td>
+                        <td className="text-right py-2 px-2 text-sm">{totalPackingWeight.toFixed(2)}</td>
+                        <td className="py-2 px-2 text-sm"></td>
+                        <td className="py-2 px-2 text-sm"></td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-2 px-2 text-sm" colSpan={2}>
+                          Packing Weight (kg): {totalPackingWeight.toFixed(2)}
+                        </td>
+                        <td className="py-2 px-2 text-sm" colSpan={3}></td>
+                      </>
+                    )
                   ) : (
                     <>
-                      <td colSpan={invoice.companyType === 'insumos' ? 4 : 4} className="py-2 px-2 text-sm text-right"></td>
-                      <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                      <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                      <td className="py-2 px-2 text-sm"></td>
+                      <td className="py-2 px-2 text-sm"></td>
+                      <td className="py-2 px-2 text-sm text-right">Packing Weight (kg):</td>
+                      <td className="text-right py-2 px-2 text-sm">{totalPackingWeight.toFixed(2)}</td>
                     </>
+                  )}
+              </tr>
+            )}
+              <tr>
+                <td
+                  colSpan={invoice.companyType === 'insumos' ? 5 : 6}
+                  className="py-1"
+                >
+                  <div className="border-t-2 border-foreground w-full"></div>
+                </td>
+              </tr>
+              <tr className="font-semibold">
+                {showTotalWeight ? (
+                  <>
+                    <td
+                      colSpan={invoice.companyType === 'insumos' ? 2 : 3}
+                      className="py-2 px-2 text-sm text-center"
+                    >
+                      Total Weight (kg):
+                    </td>
+                    <td className="py-2 px-2 text-sm text-center">
+                      {totalWeight.toFixed(2)}{invoice.companyType !== 'insumos' ? '' : ' KG'}
+                    </td>
+                  </>
+                ) : (
+                  <td
+                    colSpan={invoice.companyType === 'insumos' ? 3 : 4}
+                    className="py-2 px-2 text-sm"
+                  />
+                )}
+                <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                <td className="text-right py-2 px-2 text-sm">
+                  {currencyLabel} {formatInvoiceAmount(subtotal, currencyLabel)}
+                </td>
+              </tr>
+            </>
+          )}
+          {isLastPage && isPackingList && (
+            <tr className="border-t-2 border-foreground font-semibold">
+              {showTotalWeight ? (
+                <>
+                      <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight (kg):</td>
+                      <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
+                    </>
+                  ) : (
+                    <td colSpan={4} className="py-2 px-2 text-sm"></td>
                   )}
                 </tr>
               )}
@@ -358,13 +382,21 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
               <div className="flex flex-col items-end mb-4 gap-1">
                 <div className="text-right">
                   <div className="text-xs text-foreground space-y-1">
-                    <p>Subtotal: ${subtotal.toFixed(2)}</p>
-                    {showFreightLine && <p>Freight: ${freightCost.toFixed(2)}</p>}
-                    {showInsuranceLine && <p>Insurance: ${insuranceCost.toFixed(2)}</p>}
+                    {showFreightLine && (
+                      <p>Freight: {currencyLabel} {formatInvoiceAmount(freightCost, currencyLabel)}</p>
+                    )}
+                    {showInsuranceLine && (
+                      <p>Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCost, currencyLabel)}</p>
+                    )}
+                    {discountValue > 0 && (
+                      <p>Discount: - {currencyLabel} {formatInvoiceAmount(discountValue, currencyLabel)}</p>
+                    )}
                   </div>
                   <p className="text-xs text-foreground mt-1">
                     <span className="font-semibold text-base text-foreground">Total Amount:</span>
-                    <span className="font-bold text-xl ml-2">${totalAmount.toFixed(2)}</span>
+                    <span className="font-bold text-xl ml-2">
+                      {currencyLabel} {formatInvoiceAmount(totalAmount, currencyLabel)}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -380,16 +412,19 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                 <div className="text-right">
                   <p className="text-lg font-bold">Total Amount</p>
                   <div className="text-xs text-foreground space-y-1">
-                    <p>Subtotal: ${subtotal.toFixed(2)}</p>
-                    {showFreightLine && <p>Freight: ${freightCost.toFixed(2)}</p>}
-                    {showInsuranceLine && <p>Insurance: ${insuranceCost.toFixed(2)}</p>}
+                    {showFreightLine && (
+                      <p>Freight: {currencyLabel} {formatInvoiceAmount(freightCost, currencyLabel)}</p>
+                    )}
+                    {showInsuranceLine && (
+                      <p>Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCost, currencyLabel)}</p>
+                    )}
+                    {discountValue > 0 && (
+                      <p>Discount: - {currencyLabel} {formatInvoiceAmount(discountValue, currencyLabel)}</p>
+                    )}
                   </div>
-                  {invoice.includePackingWeight && totalPackingWeight > 0 && (
-                    <p className="text-xs font-semibold text-muted-foreground mt-1">
-                      Total Packing Weight (kg): {totalPackingWeight.toFixed(2)}
-                    </p>
-                  )}
-                  <p className="text-xl font-bold mt-1">${totalAmount.toFixed(2)}</p>
+                  <p className="text-xl font-bold mt-1">
+                    {currencyLabel} {formatInvoiceAmount(totalAmount, currencyLabel)}
+                  </p>
                 </div>
               </div>
             )

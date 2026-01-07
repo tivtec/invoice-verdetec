@@ -5,6 +5,7 @@ import { Edit, Trash2, Eye } from 'lucide-react';
 import { Invoice } from '@/types/invoice';
 import { getInvoices, deleteInvoice } from '@/utils/invoiceStorage';
 import { useToast } from '@/hooks/use-toast';
+import { formatInvoiceAmount } from '@/utils/numberFormat';
 
 interface InvoiceListProps {
   onEdit: (invoice: Invoice) => void;
@@ -59,7 +60,10 @@ export const InvoiceList = ({ onEdit, onView, refresh }: InvoiceListProps) => {
                  'Packing List'} • {invoice.importerCompanyName} • {invoice.issueDate}
               </p>
               <p className="text-sm">
-                Total: ${invoice.items.reduce((sum, item) => sum + item.total, 0).toFixed(2)}
+                Total: {invoice.currency || 'US$'} {formatInvoiceAmount(
+                  invoice.items.reduce((sum, item) => sum + item.total, 0),
+                  invoice.currency || 'US$'
+                )}
               </p>
             </div>
             <div className="flex gap-2">

@@ -9,13 +9,15 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey } from '@/types/invoice';
 import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber, getOrderById, getImporters, getProducts, ProductRecord } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
+import { formatInvoiceAmount } from '@/utils/numberFormat';
 
 const invoiceSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
+  exporterAddressKey: z.enum(['insumos_rio_negrinho', 'insumos_itajai']).optional(),
   importerCompanyName: z.string().min(1, 'Required field'),
   importerTaxId: z.string().min(1, 'Required field'),
   importerAddress: z.string().min(1, 'Required field'),
@@ -47,6 +49,14 @@ const invoiceSchema = z.object({
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
   invoiceNumber: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.companyType === 'insumos' && !data.exporterAddressKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['exporterAddressKey'],
+      message: 'Select origin address',
+    });
+  }
 });
 
 type InvoiceFormData = z.infer<typeof invoiceSchema>;
@@ -60,6 +70,7 @@ interface InvoiceFormProps {
 export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
+  const currencyLabel = 'US$';
   const initialItems = invoice?.items || [];
   const initialIncludePacking = invoice?.includePackingWeight ?? (initialItems.some(i => (i.packingWeight || 0) > 0) || (invoice?.packingWeight || 0) > 0);
   const [items, setItems] = useState<InvoiceItem[]>(initialItems);
@@ -69,16 +80,20 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const [importers, setImporters] = useState<any[]>([]);
   const [selectedImporterId, setSelectedImporterId] = useState<string>('');
   const [products, setProducts] = useState<ProductRecord[]>([]);
+  const [applyDiscount, setApplyDiscount] = useState<boolean>(invoice?.applyDiscount ?? ((invoice?.discountAmount || 0) > 0));
+  const [discountAmount, setDiscountAmount] = useState<number>(invoice?.discountAmount ?? 0);
+  const [autoNoteApplied, setAutoNoteApplied] = useState(false);
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: invoice || {
       companyType: 'equipamentos',
+      exporterAddressKey: undefined,
       incoterm: 'EXW',
-      modeOfTransport: 'SEA FREIGHT',
+      modeOfTransport: 'To be arranged and paid by the importer',
       freightCost: undefined,
       insuranceCost: undefined,
-      availability: '30 days',
+      availability: '15 days',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
@@ -87,7 +102,17 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   });
 
   const companyType = watch('companyType');
+  const exporterAddressKey = watch('exporterAddressKey') as InsumosAddressKey | undefined;
+  const resolvedCompany = getCompanyData(companyType, exporterAddressKey);
   const incoterm = watch('incoterm');
+  useEffect(() => {
+    if (companyType === 'insumos' && !exporterAddressKey) {
+      setValue('exporterAddressKey', 'insumos_rio_negrinho');
+    }
+    if (companyType !== 'insumos' && exporterAddressKey) {
+      setValue('exporterAddressKey', undefined);
+    }
+  }, [companyType, exporterAddressKey, setValue]);
   const showFreightCost = ['CFR', 'CPT', 'CIF', 'CIP'].includes(incoterm);
   const showInsuranceCost = ['CIF', 'CIP'].includes(incoterm);
   const showPortFields = ['FOB', 'FAS', 'CIF', 'CFR'].includes(incoterm);
@@ -111,6 +136,14 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   };
   const freightCostValue = showFreightCost ? (sanitizeNumber(watch('freightCost')) ?? 0) : 0;
   const insuranceCostValue = showInsuranceCost ? (sanitizeNumber(watch('insuranceCost')) ?? 0) : 0;
+  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+
+  useEffect(() => {
+    if (!applyDiscount) return;
+    if (discountAmount > subtotal) {
+      setDiscountAmount(subtotal);
+    }
+  }, [applyDiscount, discountAmount, subtotal]);
 
   // Clear fields when hidden
   if (!showFreightCost && watch('freightCost')) {
@@ -131,12 +164,29 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   }
   
   // Set default notes for Insumos when company type changes
+  const insumosNoteSuggestion = 'Unit price refers to price per kilogram (Kg).\n\nPacking Specifications:';
+  const notesValue = watch('notes');
   const notePlaceholder =
     invoice?.documentType === 'packing'
       ? 'Product Dimensions:\nNet Weight:\nGross Weight:\nCubic Measurement (CBM):\nPacking Specifications:'
       : companyType === 'insumos'
-        ? 'Unit price refers to price per kilogram (Kg).'
+        ? insumosNoteSuggestion
         : 'Add notes that will appear at the bottom of the invoice (optional)';
+  useEffect(() => {
+    if (companyType === 'insumos') {
+      if (!autoNoteApplied && !notesValue) {
+        setValue('notes', insumosNoteSuggestion);
+        setAutoNoteApplied(true);
+      }
+      return;
+    }
+    if (notesValue === insumosNoteSuggestion) {
+      setValue('notes', '');
+    }
+    if (autoNoteApplied) {
+      setAutoNoteApplied(false);
+    }
+  }, [autoNoteApplied, companyType, insumosNoteSuggestion, notesValue, setValue]);
 
   const addItem = () => {
     setItems([...items, {
@@ -266,6 +316,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     try {
       const freightForSave = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
       const insuranceForSave = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+      const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
 
       const existingBase = invoice?.invoiceNumber?.match(/\d{6}$/)?.[0];
       let baseNumber = existingBase;
@@ -314,6 +365,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         createdAt: invoice?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         companyType: data.companyType,
+        exporterAddressKey: data.exporterAddressKey,
         importerCompanyName: data.importerCompanyName,
         importerTaxId: data.importerTaxId,
         importerAddress: data.importerAddress,
@@ -327,6 +379,8 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         paymentMethod: data.paymentMethod,
         freightCost: freightForSave,
         insuranceCost: insuranceForSave,
+        applyDiscount,
+        discountAmount: discountValue,
         portOfLoading: data.portOfLoading,
         portOfDischarge: data.portOfDischarge,
         placeOfDelivery: data.placeOfDelivery,
@@ -369,6 +423,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     const totalPackingWeight = getTotalPackingWeight();
     const freightForPreview = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
     const insuranceForPreview = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+    const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
       const invoiceData: Invoice = {
         id: invoice?.id || Date.now().toString(),
         invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
@@ -381,6 +436,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         createdAt: invoice?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         companyType: data.companyType,
+        exporterAddressKey: data.exporterAddressKey,
         importerCompanyName: data.importerCompanyName,
         importerTaxId: data.importerTaxId,
         importerAddress: data.importerAddress,
@@ -391,14 +447,16 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
       availability: data.availability,
-      paymentMethod: data.paymentMethod,
-      freightCost: freightForPreview,
-      insuranceCost: insuranceForPreview,
-      portOfLoading: data.portOfLoading,
-      portOfDischarge: data.portOfDischarge,
-      placeOfDelivery: data.placeOfDelivery,
-      placeOfDestination: data.placeOfDestination,
-      clientRepresentative: data.clientRepresentative,
+        paymentMethod: data.paymentMethod,
+        freightCost: freightForPreview,
+        insuranceCost: insuranceForPreview,
+        applyDiscount,
+        discountAmount: discountValue,
+        portOfLoading: data.portOfLoading,
+        portOfDischarge: data.portOfDischarge,
+        placeOfDelivery: data.placeOfDelivery,
+        placeOfDestination: data.placeOfDestination,
+        clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
         clientPosition: data.clientPosition,
         clientPositionTitle: data.clientPositionTitle,
@@ -417,6 +475,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     const totalPackingWeight = getTotalPackingWeight();
     const freightForPreview = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
     const insuranceForPreview = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+    const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
       invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
@@ -442,6 +501,8 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     paymentMethod: data.paymentMethod,
     freightCost: freightForPreview,
     insuranceCost: insuranceForPreview,
+    applyDiscount,
+    discountAmount: discountValue,
     portOfLoading: data.portOfLoading,
     portOfDischarge: data.portOfDischarge,
     placeOfDelivery: data.placeOfDelivery,
@@ -461,16 +522,17 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
-  const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
   const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
   const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
-  const totalAmount =
+  const totalAmountBeforeDiscount =
     ['CIF', 'CIP'].includes(incoterm)
       ? subtotal + freightCostValue + insuranceCostValue
       : ['CFR', 'CPT'].includes(incoterm)
         ? subtotal + freightCostValue
         : subtotal;
+  const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
+  const totalAmount = Math.max(totalAmountBeforeDiscount - discountValue, 0);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -486,6 +548,20 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 <option value="insumos">INSUMOS HIDROSSEMEADURA VERDETEC LTDA</option>
               </select>
             </div>
+            {companyType === 'insumos' && (
+              <div>
+                <Label>Selecionar Endereço de Origem *</Label>
+                <select
+                  {...register('exporterAddressKey')}
+                  className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2"
+                >
+                  <option value="">Selecione...</option>
+                  <option value="insumos_itajai">ITAJAI – Unidade Campeche</option>
+                  <option value="insumos_rio_negrinho">RIO NEGRINHO – Unidade Volta Grande</option>
+                </select>
+                {errors.exporterAddressKey && <span className="text-sm text-destructive">{errors.exporterAddressKey.message}</span>}
+              </div>
+            )}
 
             <div>
               <Label>Invoice Number</Label>
@@ -496,11 +572,11 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
 
           <div className="bg-muted p-4 rounded-md">
             <h3 className="font-semibold mb-2">Exporter Data</h3>
-            <p className="text-sm">{COMPANY_DATA[companyType].name}</p>
-            <p className="text-sm">CNPJ: {COMPANY_DATA[companyType].cnpj}</p>
-            <p className="text-sm">{COMPANY_DATA[companyType].address}</p>
-            <p className="text-sm">ZIP Code: {COMPANY_DATA[companyType].zipCode}</p>
-            <p className="text-sm">Phone: {COMPANY_DATA[companyType].phone}</p>
+            <p className="text-sm">{resolvedCompany.name}</p>
+            <p className="text-sm">CNPJ: {resolvedCompany.cnpj}</p>
+            <p className="text-sm">{resolvedCompany.address}</p>
+            <p className="text-sm">ZIP Code: {resolvedCompany.zipCode}</p>
+            <p className="text-sm">Phone: {resolvedCompany.phone}</p>
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Importer / Buyer Data</h3>
@@ -601,6 +677,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 <option value="BY ROAD">BY ROAD</option>
                 <option value="COURIER">COURIER</option>
                 <option value="MULTIMODAL">MULTIMODAL</option>
+                <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>
@@ -745,7 +822,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
                       <Label className="text-xs">Total</Label>
-                      <Input value={`$${item.total.toFixed(2)}`} disabled />
+                      <Input value={`${currencyLabel} ${formatInvoiceAmount(item.total, currencyLabel)}`} disabled />
                     </div>
                     <Button
                       type="button"
@@ -821,7 +898,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
                       <Label className="text-xs">Total</Label>
-                      <Input value={`$${item.total.toFixed(2)}`} disabled />
+                      <Input value={`${currencyLabel} ${formatInvoiceAmount(item.total, currencyLabel)}`} disabled />
                     </div>
                     <Button
                       type="button"
@@ -886,16 +963,52 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 </div>
               )}
               <div className="flex justify-end">
-                <span>Subtotal: ${subtotal.toFixed(2)}</span>
+                <span>Subtotal: {currencyLabel} {formatInvoiceAmount(subtotal, currencyLabel)}</span>
               </div>
               {(freightCostValue > 0 || insuranceCostValue > 0) && (
                 <div className="flex justify-end gap-6 text-sm mt-1">
-                  {freightCostValue > 0 && <span>+ Freight: ${freightCostValue.toFixed(2)}</span>}
-                  {insuranceCostValue > 0 && <span>+ Insurance: ${insuranceCostValue.toFixed(2)}</span>}
+                  {freightCostValue > 0 && (
+                    <span>+ Freight: {currencyLabel} {formatInvoiceAmount(freightCostValue, currencyLabel)}</span>
+                  )}
+                  {insuranceCostValue > 0 && (
+                    <span>+ Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCostValue, currencyLabel)}</span>
+                  )}
+                </div>
+              )}
+              <div className="flex justify-end items-center gap-3 mt-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="applyDiscount"
+                    checked={applyDiscount}
+                    onCheckedChange={(checked) => setApplyDiscount(checked as boolean)}
+                  />
+                  <Label htmlFor="applyDiscount" className="cursor-pointer text-sm">
+                    Apply Discount
+                  </Label>
+                </div>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={subtotal}
+                  disabled={!applyDiscount}
+                  value={discountAmount || 0}
+                  onChange={(e) => {
+                    const parsed = parseFloat(e.target.value);
+                    const sanitized = Number.isFinite(parsed) ? parsed : 0;
+                    const clamped = Math.min(Math.max(sanitized, 0), subtotal);
+                    setDiscountAmount(clamped);
+                  }}
+                  className="w-32"
+                />
+              </div>
+              {applyDiscount && discountAmount > 0 && (
+                <div className="flex justify-end text-destructive text-sm">
+                  <span>Discount: -{currencyLabel} {formatInvoiceAmount(discountValue, currencyLabel)}</span>
                 </div>
               )}
               <div className="flex justify-end font-bold text-lg">
-                Total: ${totalAmount.toFixed(2)}
+                Total Amount: {currencyLabel} {formatInvoiceAmount(totalAmount, currencyLabel)}
               </div>
             </div>
           </div>
