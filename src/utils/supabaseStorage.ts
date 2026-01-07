@@ -3,20 +3,44 @@ import { Invoice } from '@/types/invoice';
 import { Order, Attachment } from '@/types/order';
 
 // Order operations
-export const createOrder = async (baseNumber: string): Promise<Order> => {
+const insertOrder = async (baseNumber: string, attempt = 1): Promise<Order> => {
   const orderNumber = `Order ${baseNumber}`;
-  
+  const timestamp = new Date().toISOString();
+
+  if (!baseNumber) {
+    throw new Error('Base number is empty; cannot create order.');
+  }
+
   const { data, error } = await supabase
     .from('orders')
     .insert({
       order_number: orderNumber,
       base_number: baseNumber,
+      created_at: timestamp,
+      updated_at: timestamp,
     })
     .select()
     .single();
 
-  if (error) throw error;
-  return data;
+  // If duplicate, try next sequential (protect against race conditions)
+  const isDuplicate = (error as any)?.code === '23505';
+  if (isDuplicate && attempt < 3) {
+    const nextBase = await getBaseNumber();
+    return insertOrder(nextBase, attempt + 1);
+  }
+
+  if (error) {
+    const message = (error as any)?.message || (error as any)?.details || JSON.stringify(error);
+    throw new Error(message);
+  }
+  if (!data) {
+    throw new Error('No data returned from Supabase when creating order.');
+  }
+  return data as Order;
+};
+
+export const createOrder = async (baseNumber: string): Promise<Order> => {
+  return insertOrder(baseNumber);
 };
 
 export const getOrders = async (): Promise<Order[]> => {
@@ -34,7 +58,8 @@ export const getOrderById = async (id: string): Promise<Order | null> => {
     .from('orders')
     .select('*')
     .eq('id', id)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (error) return null;
   return data;
@@ -45,7 +70,8 @@ export const getOrderByBaseNumber = async (baseNumber: string): Promise<Order | 
     .from('orders')
     .select('*')
     .eq('base_number', baseNumber)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (error) return null;
   return data;
@@ -71,12 +97,16 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     weight: item.weight || 0,
     unitPrice: item.unit_price || 0,
     total: item.total || 0,
+    packingWeight: item.volume || 0,
   }));
+
+  const itemPackingWeight = items.reduce((sum: number, item: any) => sum + (item.packingWeight || 0) * (item.qty || 0), 0);
 
   return {
     id: dbInvoice.id,
     invoiceNumber: dbInvoice.invoice_number,
     documentType: dbInvoice.document_type,
+    orderId: dbInvoice.order_id || undefined,
     issueDate: dbInvoice.issue_date,
     placeOfIssue: dbInvoice.place_of_issue,
     currency: dbInvoice.currency,
@@ -84,6 +114,12 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     createdAt: dbInvoice.created_at,
     updatedAt: dbInvoice.updated_at,
     companyType: dbInvoice.company_type,
+    portOfLoading: dbInvoice.port_of_loading || (dbInvoice as any).Port_of_loading || '',
+    portOfDischarge: dbInvoice.port_of_discharge || (dbInvoice as any).Port_of_discharge || '',
+    placeOfDelivery: dbInvoice.place_of_delivery || (dbInvoice as any).Place_of_delivery || '',
+    placeOfDestination: dbInvoice.place_of_destination || (dbInvoice as any).Place_of_destination || '',
+    freightCost: dbInvoice.freight_cost ?? (dbInvoice as any).Freight_cost ?? 0,
+    insuranceCost: dbInvoice.insurance_cost ?? (dbInvoice as any).Insurance_cost ?? 0,
     importerCompanyName: dbInvoice.importers?.company_name || '',
     importerTaxId: dbInvoice.importers?.tax_id || '',
     importerAddress: dbInvoice.importers?.address || '',
@@ -101,8 +137,9 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     clientPositionTitle: dbInvoice.client_position_title,
     notes: dbInvoice.notes || '',
     showTotalWeight: dbInvoice.show_total_weight ?? true,
-    packingWeight: dbInvoice.packing_weight || 0,
+    packingWeight: dbInvoice.packing_weight || itemPackingWeight || 0,
     includePackingWeight: dbInvoice.include_packing_weight ?? false,
+    totalPackingWeight: dbInvoice.packing_weight || itemPackingWeight || 0,
   };
 };
 
@@ -122,7 +159,8 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     .from('importers')
     .select('id')
     .eq('tax_id', invoice.importerTaxId)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   let importerId: string;
 
@@ -160,6 +198,12 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     incoterm: invoice.incoterm,
     mode_of_transport: invoice.modeOfTransport,
     availability: invoice.availability || null,
+    port_of_loading: invoice.portOfLoading || null,
+    port_of_discharge: invoice.portOfDischarge || null,
+    place_of_delivery: invoice.placeOfDelivery || null,
+    place_of_destination: invoice.placeOfDestination || null,
+    freight_cost: invoice.freightCost ?? null,
+    insurance_cost: invoice.insuranceCost ?? null,
     payment_method: invoice.paymentMethod,
     client_representative: invoice.clientRepresentative,
     client_company_position: invoice.clientCompanyPosition,
@@ -171,11 +215,49 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     include_packing_weight: invoice.includePackingWeight ?? false,
   };
 
-  const { data: savedInvoice, error: invoiceError } = await supabase
+  // Reuse existing invoice id when the invoice number already exists to avoid FK conflicts
+  const { data: existingInvoiceByNumber } = await supabase
     .from('invoices')
-    .upsert({ ...invoiceData, id: invoice.id }, { onConflict: 'id' })
-    .select()
-    .single();
+    .select('id')
+    .eq('invoice_number', invoice.invoiceNumber)
+    .limit(1)
+    .maybeSingle();
+  const invoiceId = existingInvoiceByNumber?.id || invoice.id;
+
+  const tryUpsert = async (payload: any) =>
+    supabase
+      .from('invoices')
+      .upsert({ ...payload, id: invoiceId }, { onConflict: 'invoice_number' })
+      .select()
+      .single();
+
+  let savedInvoice;
+  let invoiceError;
+
+  ({ data: savedInvoice, error: invoiceError } = await tryUpsert(invoiceData));
+
+  const missingPlaceCols =
+    (invoiceError as any)?.message?.toLowerCase().includes('place_of_delivery') ||
+    (invoiceError as any)?.message?.toLowerCase().includes('place_of_destination') ||
+    (invoiceError as any)?.message?.toLowerCase().includes('port_of_loading') ||
+    (invoiceError as any)?.message?.toLowerCase().includes('port_of_discharge') ||
+    (invoiceError as any)?.details?.toLowerCase().includes('place_of_delivery') ||
+    (invoiceError as any)?.details?.toLowerCase().includes('place_of_destination') ||
+    (invoiceError as any)?.details?.toLowerCase().includes('port_of_loading') ||
+    (invoiceError as any)?.details?.toLowerCase().includes('port_of_discharge');
+
+  if (invoiceError && missingPlaceCols) {
+    const uppercasePayload: any = { ...invoiceData };
+    uppercasePayload.Port_of_loading = uppercasePayload.port_of_loading;
+    uppercasePayload.Port_of_discharge = uppercasePayload.port_of_discharge;
+    uppercasePayload.Place_of_delivery = uppercasePayload.place_of_delivery;
+    uppercasePayload.Place_of_destination = uppercasePayload.place_of_destination;
+    delete uppercasePayload.port_of_loading;
+    delete uppercasePayload.port_of_discharge;
+    delete uppercasePayload.place_of_delivery;
+    delete uppercasePayload.place_of_destination;
+    ({ data: savedInvoice, error: invoiceError } = await tryUpsert(uppercasePayload));
+  }
 
   if (invoiceError) throw invoiceError;
 
@@ -194,6 +276,7 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
       weight: item.weight,
       unit_price: item.unitPrice,
       total: item.total,
+      volume: item.packingWeight || 0,
     }));
 
     const { error: itemsError } = await supabase
@@ -233,6 +316,375 @@ export const getInvoiceById = async (id: string): Promise<Invoice | null> => {
   return formatInvoiceFromDb(data);
 };
 
+// Importers
+export const getImporters = async () => {
+  // Prefer new `clients` table; fall back to `importers` for compatibility and handle missing archived column.
+  type ClientRow = {
+    id: string;
+    company_name: string;
+    tax_identification_number: string | null;
+    address_city_state: string | null;
+    zip_code: string | null;
+    phone: string | null;
+    email: string | null;
+    country_of_destination: string | null;
+    archived: boolean | null;
+  };
+
+  const mapClient = (row: ClientRow) => ({
+    id: row.id,
+    company_name: row.company_name,
+    tax_id: row.tax_identification_number || '',
+    address: row.address_city_state || '',
+    zip_code: row.zip_code || '',
+    phone: row.phone || '',
+    email: row.email || '',
+    country: row.country_of_destination || '',
+    archived: !!row.archived,
+  });
+
+  const tryTable = async (table: 'clients' | 'importers') => {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .or('archived.is.null,archived.eq.false')
+      .order('company_name', { ascending: true });
+
+    const missingArchived =
+      (error as any)?.message?.toString().toLowerCase().includes('archived') ||
+      (error as any)?.details?.toString().toLowerCase().includes('archived');
+
+    if (missingArchived) {
+      const fallback = await supabase
+        .from(table)
+        .select('*')
+        .order('company_name', { ascending: true });
+
+      if (fallback.error) throw fallback.error;
+      const rows = fallback.data || [];
+      return table === 'clients'
+        ? (rows as ClientRow[]).map(mapClient)
+        : rows.map((imp: any) => ({ ...imp, archived: false }));
+    }
+
+    if (error) throw error;
+    const rows = data || [];
+    return table === 'clients'
+      ? (rows as ClientRow[]).map(mapClient)
+      : rows;
+  };
+
+  try {
+    return await tryTable('clients');
+  } catch (err: any) {
+    const relationMissing = err?.message?.toLowerCase().includes('clients') && err?.message?.toLowerCase().includes('does not exist');
+    if (!relationMissing) throw err;
+  }
+
+  return tryTable('importers');
+};
+
+export const createImporter = async (payload: {
+  company_name: string;
+  tax_id: string;
+  address: string;
+  zip_code: string;
+  phone: string;
+  email?: string | null;
+  country: string;
+}) => {
+  const attempt = async (table: 'clients' | 'importers') => {
+    const basePayload =
+      table === 'clients'
+        ? {
+            company_name: payload.company_name,
+            tax_identification_number: payload.tax_id,
+            address_city_state: payload.address,
+            zip_code: payload.zip_code,
+            phone: payload.phone,
+            email: payload.email || null,
+            country_of_destination: payload.country,
+          }
+        : {
+            ...payload,
+            email: payload.email || null,
+            archived: false,
+          };
+
+    const { data, error } = await supabase
+      .from(table)
+      .insert(basePayload)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  };
+
+  try {
+    return await attempt('clients');
+  } catch (err: any) {
+    const missing = err?.message?.toLowerCase().includes('clients') && err?.message?.toLowerCase().includes('does not exist');
+    if (!missing) throw err;
+  }
+
+  return attempt('importers');
+};
+
+export const updateImporter = async (
+  id: string,
+  payload: {
+    company_name: string;
+    tax_id: string;
+    address: string;
+    zip_code: string;
+    phone: string;
+    email?: string | null;
+  country: string;
+  }
+) => {
+  const attempt = async (table: 'clients' | 'importers') => {
+    const basePayload =
+      table === 'clients'
+        ? {
+            company_name: payload.company_name,
+            tax_identification_number: payload.tax_id,
+            address_city_state: payload.address,
+            zip_code: payload.zip_code,
+            phone: payload.phone,
+            email: payload.email || null,
+            country_of_destination: payload.country,
+          }
+        : {
+            ...payload,
+            email: payload.email || null,
+            updated_at: new Date().toISOString(),
+          };
+
+    const { data, error } = await supabase
+      .from(table)
+      .update(basePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  };
+
+  try {
+    return await attempt('clients');
+  } catch (err: any) {
+    const missing = err?.message?.toLowerCase().includes('clients') && err?.message?.toLowerCase().includes('does not exist');
+    if (!missing) throw err;
+  }
+
+  return attempt('importers');
+};
+
+export const deleteImporter = async (id: string) => {
+  const attempt = async (table: 'clients' | 'importers') => {
+    const { error } = await supabase
+      .from(table)
+      .update({ archived: true })
+      .eq('id', id);
+
+    const missingArchived =
+      (error as any)?.message?.toString().toLowerCase().includes('archived') ||
+      (error as any)?.details?.toString().toLowerCase().includes('archived');
+
+    if (missingArchived) {
+      throw new Error('A coluna "archived" não existe. Rode a migração SQL para adicioná-la e permitir exclusão segura.');
+    }
+
+    if (error) {
+      const message = (error as any)?.message || (error as any)?.details || 'Erro ao excluir cliente.';
+      throw new Error(message);
+    }
+  };
+
+  try {
+    await attempt('clients');
+  } catch (err: any) {
+    const missing = err?.message?.toLowerCase().includes('clients') && err?.message?.toLowerCase().includes('does not exist');
+    if (!missing) throw err;
+    await attempt('importers');
+  }
+};
+
+// Products (CRUD)
+export type ProductRecord = {
+  id: string;
+  hs_code: string;
+  description: string;
+  weight_kg: number | null;
+  archived?: boolean | null;
+};
+
+const productsTable = 'products';
+
+const ensureProductsTableExists = (error: any) => {
+  const missing =
+    error?.message?.toLowerCase().includes(productsTable) &&
+    error?.message?.toLowerCase().includes('does not exist');
+  if (missing) {
+    throw new Error(
+      `Tabela "${productsTable}" não encontrada no Supabase. Crie-a com colunas: id (uuid, pk, default uuid_generate_v4()), hs_code text, description text, weight_kg numeric, archived boolean default false.`
+    );
+  }
+};
+
+export const getProducts = async (): Promise<ProductRecord[]> => {
+  const { data, error } = await supabase
+    .from(productsTable)
+    .select('*')
+    .eq('archived', false)
+    .order('description', { ascending: true });
+
+  const missingArchived =
+    (error as any)?.message?.toLowerCase().includes('archived') ||
+    (error as any)?.details?.toLowerCase().includes('archived');
+
+  if (missingArchived) {
+    const fallback = await supabase
+      .from(productsTable)
+      .select('*')
+      .order('description', { ascending: true });
+    if (fallback.error) {
+      ensureProductsTableExists(fallback.error);
+      throw fallback.error;
+    }
+    return (fallback.data || []) as ProductRecord[];
+  }
+
+  if (error) {
+    ensureProductsTableExists(error);
+    throw error;
+  }
+  return (data || []) as ProductRecord[];
+};
+
+export const createProduct = async (payload: {
+  hs_code: string;
+  description: string;
+  weight_kg?: number | null;
+}) => {
+  const { data, error } = await supabase
+    .from(productsTable)
+    .insert({
+      hs_code: payload.hs_code,
+      description: payload.description,
+      weight_kg: payload.weight_kg ?? null,
+      archived: false,
+    })
+    .select()
+    .single();
+
+  const missingArchived =
+    (error as any)?.message?.toLowerCase().includes('archived') ||
+    (error as any)?.details?.toLowerCase().includes('archived');
+
+  if (missingArchived) {
+    const fallback = await supabase
+      .from(productsTable)
+      .insert({
+        hs_code: payload.hs_code,
+        description: payload.description,
+        weight_kg: payload.weight_kg ?? null,
+      })
+      .select()
+      .single();
+    if (fallback.error) {
+      ensureProductsTableExists(fallback.error);
+      throw fallback.error;
+    }
+    return fallback.data as ProductRecord;
+  }
+
+  if (error) {
+    ensureProductsTableExists(error);
+    throw error;
+  }
+  return data as ProductRecord;
+};
+
+export const updateProduct = async (
+  id: string,
+  payload: {
+    hs_code: string;
+    description: string;
+    weight_kg?: number | null;
+  }
+) => {
+  const { data, error } = await supabase
+    .from(productsTable)
+    .update({
+      hs_code: payload.hs_code,
+      description: payload.description,
+      weight_kg: payload.weight_kg ?? null,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  const missingArchived =
+    (error as any)?.message?.toLowerCase().includes('archived') ||
+    (error as any)?.details?.toLowerCase().includes('archived');
+
+  if (missingArchived) {
+    const fallback = await supabase
+      .from(productsTable)
+      .update({
+        hs_code: payload.hs_code,
+        description: payload.description,
+        weight_kg: payload.weight_kg ?? null,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (fallback.error) {
+      ensureProductsTableExists(fallback.error);
+      throw fallback.error;
+    }
+    return fallback.data as ProductRecord;
+  }
+
+  if (error) {
+    ensureProductsTableExists(error);
+    throw error;
+  }
+  return data as ProductRecord;
+};
+
+export const deleteProduct = async (id: string) => {
+  const { error } = await supabase
+    .from(productsTable)
+    .update({ archived: true })
+    .eq('id', id);
+
+  const missingArchived =
+    (error as any)?.message?.toLowerCase().includes('archived') ||
+    (error as any)?.details?.toLowerCase().includes('archived');
+
+  if (missingArchived) {
+    // If no archived column, hard delete
+    const hardDelete = await supabase.from(productsTable).delete().eq('id', id);
+    if (hardDelete.error) {
+      ensureProductsTableExists(hardDelete.error);
+      const message = (hardDelete.error as any)?.message || (hardDelete.error as any)?.details || 'Erro ao excluir produto.';
+      throw new Error(message);
+    }
+    return;
+  }
+
+  if (error) {
+    ensureProductsTableExists(error);
+    const message = (error as any)?.message || (error as any)?.details || 'Erro ao excluir produto.';
+    throw new Error(message);
+  }
+};
+
 export const getInvoicesByOrderId = async (orderId: string): Promise<Invoice[]> => {
   const { data, error } = await supabase
     .from('invoices')
@@ -257,6 +709,7 @@ export const deleteInvoice = async (id: string): Promise<void> => {
   if (error) throw error;
 };
 
+// Deprecated in favor of client-side filtering (left for compatibility)
 export const searchInvoices = async (query: string): Promise<Invoice[]> => {
   const { data, error } = await supabase
     .from('invoices')
@@ -343,15 +796,19 @@ export const getBaseNumber = async (): Promise<string> => {
   const currentYear = new Date().getFullYear();
   const yearPrefix = currentYear.toString().slice(-2);
 
-  const { count, error } = await supabase
+  // Get the highest base_number for the year and increment
+  const { data, error } = await supabase
     .from('orders')
-    .select('*', { count: 'exact', head: true })
-    .like('base_number', `${yearPrefix}%`);
+    .select('base_number')
+    .like('base_number', `${yearPrefix}%`)
+    .order('base_number', { ascending: false })
+    .limit(1);
 
   if (error) throw error;
 
-  const sequentialNumber = ((count || 0) + 1).toString().padStart(4, '0');
-  return `${yearPrefix}${sequentialNumber}`;
+  const lastBase = data && data.length > 0 ? parseInt(data[0].base_number, 10) : undefined;
+  const next = (lastBase || parseInt(`${yearPrefix}0000`, 10)) + 1;
+  return next.toString().padStart(6, '0');
 };
 
 export const generateInvoiceNumber = async (): Promise<string> => {

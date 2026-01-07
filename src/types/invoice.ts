@@ -9,6 +9,7 @@ export interface InvoiceItem {
   weight: number;
   unitPrice: number;
   total: number;
+  packingWeight?: number;
 }
 
 export interface Invoice {
@@ -16,6 +17,7 @@ export interface Invoice {
   invoiceNumber: string;
   documentType: DocumentType;
   companyType: CompanyType;
+  orderId?: string;
   issueDate: string;
   placeOfIssue: string;
   
@@ -34,6 +36,8 @@ export interface Invoice {
   availability: string;
   currency: string;
   paymentMethod: string;
+  freightCost?: number;
+  insuranceCost?: number;
   
   // Port fields (for Commercial Invoice - conditional based on Incoterm)
   portOfLoading?: string;
@@ -60,6 +64,7 @@ export interface Invoice {
   showTotalWeight?: boolean;
   packingWeight?: number;
   includePackingWeight?: boolean;
+  totalPackingWeight?: number;
   
   createdAt: string;
   updatedAt: string;

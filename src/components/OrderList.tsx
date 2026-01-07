@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2, Plus, Upload } from 'lucide-react';
 import { Order, Attachment } from '@/types/order';
 import { Invoice } from '@/types/invoice';
-import { getAttachmentUrl, deleteAttachment, deleteOrder } from '@/utils/supabaseStorage';
+import { getAttachmentUrl, deleteAttachment, deleteOrder, deleteInvoice } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { AttachmentUpload } from './AttachmentUpload';
 
@@ -21,12 +21,20 @@ interface OrderListProps {
   onCreateProforma?: (orderId: string) => void;
   onCreateCommercial?: (orderId: string, sourceInvoice?: Invoice) => void;
   onCreatePacking?: (orderId: string, sourceInvoice?: Invoice) => void;
+  expandOrderId?: string;
 }
 
-export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking }: OrderListProps) => {
+export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking, expandOrderId }: OrderListProps) => {
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [showUpload, setShowUpload] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // auto expand newly created order when passed in
+  if (expandOrderId && !expandedOrders.has(expandOrderId)) {
+    const newExpanded = new Set(expandedOrders);
+    newExpanded.add(expandOrderId);
+    setExpandedOrders(newExpanded);
+  }
 
   const toggleOrder = (orderId: string) => {
     const newExpanded = new Set(expandedOrders);
@@ -53,6 +61,26 @@ export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, o
       toast({
         title: 'Error',
         description: 'Failed to delete attachment.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteInvoice = async (invoice: Invoice) => {
+    if (!confirm(`Are you sure you want to delete ${invoice.invoiceNumber}?`)) return;
+
+    try {
+      await deleteInvoice(invoice.id);
+      toast({
+        title: 'Invoice deleted',
+        description: `${invoice.invoiceNumber} removed successfully.`,
+      });
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting invoice:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete invoice.',
         variant: 'destructive',
       });
     }
@@ -189,6 +217,11 @@ export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, o
                         <p className="text-sm text-muted-foreground">
                           {invoice.documentType.toUpperCase()} - {invoice.importerCompanyName}
                         </p>
+                        {invoice.includePackingWeight && (invoice.totalPackingWeight || invoice.packingWeight) ? (
+                          <p className="text-sm text-muted-foreground">
+                            Packing Weight: {(invoice.totalPackingWeight || invoice.packingWeight || 0).toFixed(2)} KG
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -212,6 +245,16 @@ export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, o
                         }}
                       >
                         Visualizar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteInvoice(invoice);
+                        }}
+                      >
+                        Delete
                       </Button>
                     </div>
                   </div>

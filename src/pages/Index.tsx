@@ -8,8 +8,7 @@ import { OrderList } from '@/components/OrderList';
 import { InvoicePrintPreview } from '@/components/InvoicePrintPreview';
 import { SearchBar } from '@/components/SearchBar';
 import { Invoice } from '@/types/invoice';
-import { getOrders, getInvoicesByOrderId, getAttachmentsByOrderId, searchInvoices } from '@/utils/supabaseStorage';
-import { Order } from '@/types/order';
+import { getOrders, getInvoicesByOrderId, getAttachmentsByOrderId, createOrder, getBaseNumber } from '@/utils/supabaseStorage';
 import verdetecLogoDark from '@/assets/verdetec-logo-dark.png';
 import {
   Dialog,
@@ -19,6 +18,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Card } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
 
 const Index = () => {
   const [view, setView] = useState<'list' | 'form' | 'commercial' | 'packing' | 'preview'>('list');
@@ -30,6 +31,26 @@ const Index = () => {
   const [ordersWithDetails, setOrdersWithDetails] = useState<any[]>([]);
   const [currentOrderId, setCurrentOrderId] = useState<string | undefined>();
   const [availableSourceInvoices, setAvailableSourceInvoices] = useState<Invoice[]>([]);
+  const [lastCreatedOrderId, setLastCreatedOrderId] = useState<string | undefined>();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const getErrorMessage = (error: unknown) => {
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string') {
+      return (error as any).message;
+    }
+    if (error && typeof error === 'object' && 'error_description' in error && typeof (error as any).error_description === 'string') {
+      return (error as any).error_description;
+    }
+    try {
+      const serialized = JSON.stringify(error, Object.getOwnPropertyNames(error || {}));
+      return serialized || 'Unknown error';
+    } catch {
+      return 'Unknown error';
+    }
+  };
 
   const handleNew = () => {
     setSelectedInvoice(undefined);
@@ -81,6 +102,33 @@ const Index = () => {
     setCurrentOrderId(orderId);
     setSelectedInvoice(undefined);
     setView('form');
+  };
+
+  const handleCreateNewOrder = async () => {
+    try {
+      const baseNumber = await getBaseNumber();
+      if (!baseNumber) {
+        throw new Error('Falha ao gerar número base do pedido.');
+      }
+      const order = await createOrder(baseNumber);
+      setCurrentOrderId(order.id);
+      setSelectedInvoice(undefined);
+      setView('list');
+      setLastCreatedOrderId(order.id);
+      setRefreshKey(prev => prev + 1);
+      toast({
+        title: 'Pedido criado',
+        description: `Order ${order.order_number} pronto para receber documentos.`,
+      });
+    } catch (error) {
+      console.error('Error creating order:', error);
+      const message = getErrorMessage(error);
+      toast({
+        title: 'Erro ao criar pedido',
+        description: message,
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleEdit = (invoice: Invoice) => {
@@ -154,29 +202,33 @@ const Index = () => {
   useEffect(() => {
     const loadOrders = async () => {
       try {
-        if (searchQuery.trim()) {
-          const invoices = await searchInvoices(searchQuery);
-          // Group invoices by order
-          const orderMap = new Map();
-          for (const invoice of invoices) {
-            // You would need to fetch order details here
-            // This is a simplified version
-          }
-          // For now, just show invoices without proper grouping when searching
-          setOrdersWithDetails([]);
+        const orders = await getOrders();
+        const ordersWithData = await Promise.all(
+          orders.map(async (order) => {
+            const invoices = await getInvoicesByOrderId(order.id);
+            const attachments = await getAttachmentsByOrderId(order.id);
+            return {
+              ...order,
+              invoices,
+              attachments,
+            };
+          })
+        );
+
+        const query = searchQuery.trim().toLowerCase();
+        if (query) {
+          const filtered = ordersWithData.filter((order) => {
+            const orderNumberMatch =
+              order.order_number?.toLowerCase().includes(query) ||
+              order.base_number?.toLowerCase().includes(query);
+            const invoiceMatch = order.invoices.some((inv: Invoice) =>
+              (inv.invoiceNumber?.toLowerCase().includes(query) ||
+                inv.importerCompanyName?.toLowerCase().includes(query))
+            );
+            return orderNumberMatch || invoiceMatch;
+          });
+          setOrdersWithDetails(filtered);
         } else {
-          const orders = await getOrders();
-          const ordersWithData = await Promise.all(
-            orders.map(async (order) => {
-              const invoices = await getInvoicesByOrderId(order.id);
-              const attachments = await getAttachmentsByOrderId(order.id);
-              return {
-                ...order,
-                invoices,
-                attachments,
-              };
-            })
-          );
           setOrdersWithDetails(ordersWithData);
         }
       } catch (error) {
@@ -200,24 +252,22 @@ const Index = () => {
             />
             <h1 className="text-2xl font-bold">SISTEMA DE INVOICE VERDETEC</h1>
           </div>
-          {view === 'list' && (
-            <div className="flex gap-2">
-              <Button onClick={handleNew}>
-                <Plus className="mr-2 h-4 w-4" /> Criar Proforma Invoice
-              </Button>
-              <Button onClick={handleNewCommercial} variant="outline">
-                <FileText className="mr-2 h-4 w-4" /> Criar Commercial Invoice
-              </Button>
-              <Button onClick={handleNewPacking} variant="outline">
-                <Package className="mr-2 h-4 w-4" /> Criar Packing List
-              </Button>
-            </div>
-          )}
-          {view !== 'list' && (
-            <Button variant="outline" onClick={() => setView('list')}>
-              Back to List
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/clients')}>
+              Clientes
             </Button>
-          )}
+            <Button variant="outline" onClick={() => navigate('/products')}>
+              Produtos
+            </Button>
+            <Button variant="default" onClick={handleCreateNewOrder}>
+              <Plus className="mr-2 h-4 w-4" /> Criar Pedido
+            </Button>
+            {view !== 'list' && (
+              <Button variant="outline" onClick={() => setView('list')}>
+                Back to List
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -334,6 +384,7 @@ const Index = () => {
               onCreateProforma={handleCreateProformaInOrder}
               onCreateCommercial={handleCreateCommercialInOrder}
               onCreatePacking={handleCreatePackingInOrder}
+              expandOrderId={lastCreatedOrderId}
             />
           </>
         )}
@@ -370,3 +421,4 @@ const Index = () => {
 };
 
 export default Index;
+

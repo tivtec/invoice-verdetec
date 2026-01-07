@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Invoice, COMPANY_DATA } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
@@ -9,34 +10,154 @@ interface InvoicePrintPreviewProps {
 }
 
 export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProps) => {
+  const ITEMS_PER_PAGE = 10;
+  const mmToPx = (mm: number) => (mm * 96) / 25.4;
+  const A4_HEIGHT_PX = mmToPx(297);
+
+  const itemChunks = [];
+  for (let i = 0; i < invoice.items.length; i += ITEMS_PER_PAGE) {
+    itemChunks.push(invoice.items.slice(i, i + ITEMS_PER_PAGE));
+  }
+  const totalPages = itemChunks.length || 1;
+
+  const [fitToPage, setFitToPage] = useState(false);
+  const [pageHeights, setPageHeights] = useState<number[]>([]);
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const innerRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const heights = innerRefs.current.map((el) => el?.scrollHeight || 0);
+    setPageHeights(heights);
+  }, [invoice, totalPages, fitToPage]);
+
+  const computedScales = pageHeights.map((h) => {
+    if (!fitToPage || h <= A4_HEIGHT_PX) return 1;
+    return Math.min(1, A4_HEIGHT_PX / h);
+  });
+
+  const hasOverflow = pageHeights.some((h) => h > A4_HEIGHT_PX + 2);
+
   const handlePrint = () => {
     window.print();
   };
 
   const company = COMPANY_DATA[invoice.companyType];
+  const incotermCode = (invoice.incoterm || '').toUpperCase();
+  const showPortLoading = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incotermCode);
+  const showPortDischarge = ['FOB', 'FAS', 'CFR', 'CIF'].includes(incotermCode);
+  const showPlaceOfDelivery = ['CPT', 'CIP', 'FCA'].includes(incotermCode);
+  const showPlaceOfDestination = ['CPT', 'CIP', 'DAP', 'DPU', 'DDP'].includes(incotermCode);
   const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
-  const itemsWeight = invoice.items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
-  const totalWeight = itemsWeight + (invoice.includePackingWeight ? (invoice.packingWeight || 0) : 0);
+  const computeItemTotalWeight = (item: any) => {
+    const normalize = (val: any) => {
+      if (typeof val === 'string') {
+        const cleaned = val.replace(',', '.'); // handle decimal with comma
+        const parsed = parseFloat(cleaned);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      const num = Number(val);
+      return Number.isFinite(num) ? num : 0;
+    };
+    const qtyNum = normalize(item.qty);
+    const weightNum = normalize(item.weight);
+    if (invoice.companyType === 'insumos') {
+      // For INSUMOS: qty is KG; fall back to weight if qty is missing
+      return qtyNum || weightNum;
+    }
+    return weightNum * qtyNum;
+  };
+  const itemsWeight = invoice.items.reduce((sum, item) => sum + computeItemTotalWeight(item), 0);
+  const itemPackingWeight = invoice.items.reduce((sum, item) => {
+    const normalize = (val: any) => {
+      if (typeof val === 'string') {
+        const cleaned = val.replace(',', '.');
+        const parsed = parseFloat(cleaned);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      const num = Number(val);
+      return Number.isFinite(num) ? num : 0;
+    };
+    const pack = normalize(item.packingWeight);
+    const qty = normalize(item.qty);
+    return sum + (pack * qty);
+  }, 0);
+  const totalPackingWeight = invoice.includePackingWeight
+    ? (invoice.totalPackingWeight ?? itemPackingWeight ?? invoice.packingWeight ?? 0)
+    : 0;
+  const totalWeight = itemsWeight + totalPackingWeight;
+  const freightCost = invoice.freightCost || 0;
+  const insuranceCost = invoice.insuranceCost || 0;
+  const showFreightLine =
+    ['commercial', 'proforma'].includes(invoice.documentType) &&
+    (freightCost > 0 || ['CFR', 'CPT', 'CIF', 'CIP'].includes(incotermCode));
+  const showInsuranceLine =
+    ['commercial', 'proforma'].includes(invoice.documentType) &&
+    (insuranceCost > 0 || ['CIF', 'CIP'].includes(incotermCode));
+  const totalAmount =
+    ['CIF', 'CIP'].includes(incotermCode)
+      ? subtotal + freightCost + insuranceCost
+      : ['CFR', 'CPT'].includes(incotermCode)
+        ? subtotal + freightCost
+        : subtotal;
   const documentTitle = invoice.documentType === 'proforma' ? 'PROFORMA INVOICE' : 
                         invoice.documentType === 'commercial' ? 'COMMERCIAL INVOICE' : 
                         'PACKING LIST';
   const isPackingList = invoice.documentType === 'packing';
   const logoColor = invoice.companyType === 'insumos' ? '#104444' : '#EC6D1D';
   const showTotalWeight = invoice.showTotalWeight ?? true;
+  const hasNotes = (invoice.notes || '').trim().length > 0;
+  const repName = (invoice.clientPosition || '').trim() || 'Caroline Franzen';
+  const repTitle = (invoice.clientPositionTitle || '').trim() || 'Verdetec Administrative Manager';
 
   return (
     <div className="min-h-screen bg-muted">
-      <div className="print:hidden p-4 bg-background border-b flex gap-4">
+      <div className="print:hidden p-4 bg-background border-b flex gap-4 items-center">
         <Button onClick={onBack} variant="outline">
           <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
         </Button>
         <Button onClick={handlePrint}>
           <Printer className="mr-2 h-4 w-4" /> Imprimir
         </Button>
+        <Button variant={fitToPage ? 'default' : 'outline'} onClick={() => setFitToPage((v) => !v)}>
+          {fitToPage ? 'Tamanho real' : 'Ajustar para caber em A4'}
+        </Button>
+        <div className="ml-auto text-sm text-muted-foreground flex items-center">
+          {hasOverflow && !fitToPage
+            ? 'Conteúdo excede A4: ative "Ajustar para caber" ou reduza itens.'
+            : 'Dentro da área A4'}
+        </div>
       </div>
 
-      <div className="print:p-0 p-8">
-        <div className="bg-background w-[210mm] mx-auto p-[15mm] print:shadow-none shadow-lg" style={{ minHeight: '297mm' }}>
+      <div className="print:p-0 p-8 space-y-6">
+        {itemChunks.map((chunk, pageIndex) => {
+          const isLastPage = pageIndex === totalPages - 1;
+          const scale = computedScales[pageIndex] ?? 1;
+          const fixedHeight = fitToPage ? '297mm' : undefined;
+          return (
+            <div
+              key={pageIndex}
+              className="bg-background w-[210mm] mx-auto print:shadow-none shadow-lg border border-muted-foreground/40"
+              style={{
+                minHeight: fitToPage ? undefined : '297mm',
+                height: fixedHeight,
+                pageBreakAfter: isLastPage ? 'auto' : 'always',
+                overflow: fitToPage ? 'hidden' : 'visible',
+              }}
+              ref={(el) => {
+                pageRefs.current[pageIndex] = el;
+              }}
+            >
+              <div
+                style={{
+                  padding: '15mm',
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                  width: scale < 1 ? `${100 / scale}%` : '100%',
+                }}
+                ref={(el) => {
+                  innerRefs.current[pageIndex] = el;
+                }}
+              >
           {/* Header with Logo */}
           <div className="flex justify-between items-start mb-4">
             <img 
@@ -90,11 +211,43 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
             <div className="text-right">
               <p className="text-xs"><span className="font-semibold">INCOTERM:</span> {invoice.incoterm}</p>
               <p className="text-xs"><span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport}</p>
-              {invoice.documentType === 'proforma' && (
+              {invoice.availability && invoice.documentType === 'proforma' && (
                 <p className="text-xs"><span className="font-semibold">Availability:</span> {invoice.availability}</p>
               )}
-              <p className="text-xs"><span className="font-semibold">Currency:</span> {invoice.currency}</p>
-              <p className="text-xs"><span className="font-semibold">Payment Method:</span> {invoice.paymentMethod}</p>
+              {showPortLoading && invoice.portOfLoading && (
+                <p className="text-xs"><span className="font-semibold">Port of Loading:</span> {invoice.portOfLoading}</p>
+              )}
+              {showPortDischarge && invoice.portOfDischarge && (
+                <p className="text-xs"><span className="font-semibold">Port of Discharge:</span> {invoice.portOfDischarge}</p>
+              )}
+              {showPlaceOfDestination && invoice.placeOfDestination && (
+                <p className="text-xs"><span className="font-semibold">Named Place of Destination:</span> {invoice.placeOfDestination}</p>
+              )}
+              {showPlaceOfDelivery && invoice.placeOfDelivery && (
+                <p className="text-xs"><span className="font-semibold">Final Delivery Location:</span> {invoice.placeOfDelivery}</p>
+              )}
+              <p className="text-xs">
+                <span className="font-semibold">
+                  {invoice.documentType === 'commercial' ? 'Terms of Payment:' : 'Payment Method:'}
+                </span>{' '}
+                {invoice.paymentMethod}
+              </p>
+              {invoice.documentType === 'commercial' && (
+                <>
+                  {showPortLoading && invoice.portOfLoading && (
+                    <p className="text-xs"><span className="font-semibold">Port of Loading:</span> {invoice.portOfLoading}</p>
+                  )}
+                  {showPortDischarge && invoice.portOfDischarge && (
+                    <p className="text-xs"><span className="font-semibold">Port of Discharge:</span> {invoice.portOfDischarge}</p>
+                  )}
+                  {showPlaceOfDestination && invoice.placeOfDestination && (
+                    <p className="text-xs"><span className="font-semibold">Named Place of Destination:</span> {invoice.placeOfDestination}</p>
+                  )}
+                  {showPlaceOfDelivery && invoice.placeOfDelivery && (
+                    <p className="text-xs"><span className="font-semibold">Final Delivery Location:</span> {invoice.placeOfDelivery}</p>
+                  )}
+                </>
+              )}
               {invoice.documentType === 'packing' && invoice.sourceInvoiceId && (
                 <p className="text-xs"><span className="font-semibold">Packing List related to Commercial Invoice Nº:</span> {invoice.sourceInvoiceId}</p>
               )}
@@ -106,82 +259,151 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
             <thead>
               <tr className="border-b-2 border-foreground">
                 {!isPackingList && <th className="text-left py-2 px-2 text-sm">HS CODE (NCM)</th>}
-                <th className="text-center py-2 px-2 text-sm">QTY</th>
+                <th className="text-center py-2 px-2 text-sm">
+                  {invoice.companyType === 'insumos' ? 'QTY (kg)' : 'QTY'}
+                </th>
                 <th className="text-left py-2 px-2 text-sm">DESCRIPTION</th>
-                <th className="text-right py-2 px-2 text-sm">Weight {isPackingList ? 'per Unit' : ''} (KG)</th>
-                {!isPackingList && <th className="text-right py-2 px-2 text-sm">UNIT PRICE</th>}
+                {invoice.companyType !== 'insumos' && (
+                  <th className="text-right py-2 px-2 text-sm">
+                    {isPackingList ? 'Weight per Unit (kg)' : 'Unit Weight (kg)'}
+                  </th>
+                )}
+                {!isPackingList && <th className="text-right py-2 px-2 text-sm">{invoice.companyType === 'insumos' ? 'UNIT PRICE (per kg)' : 'UNIT PRICE'}</th>}
                 {!isPackingList && <th className="text-right py-2 px-2 text-sm">TOTAL</th>}
                 {isPackingList && <th className="text-right py-2 px-2 text-sm">TOTAL WEIGHT</th>}
               </tr>
             </thead>
             <tbody>
-              {invoice.items.map((item) => (
+              {chunk.map((item) => (
                 <tr key={item.id} className="border-b">
                   {!isPackingList && <td className="py-2 px-2 text-sm">{item.hsCode}</td>}
-                  <td className="text-center py-2 px-2 text-sm">{item.qty}</td>
+                  <td className="text-center py-2 px-2 text-sm">
+                    {invoice.companyType === 'insumos' && !isPackingList
+                      ? (invoice.documentType === 'commercial'
+                          ? (item.weight || 0)
+                          : (item.qty || item.weight || 0)
+                        ).toFixed(2)
+                      : item.qty}
+                  </td>
                   <td className="py-2 px-2 text-sm">{item.description}</td>
-                  <td className="text-right py-2 px-2 text-sm">{item.weight.toFixed(2)}</td>
-                  {!isPackingList && <td className="text-right py-2 px-2 text-sm">${item.unitPrice.toFixed(2)}</td>}
+                  {invoice.companyType !== 'insumos' && (
+                    <td className="text-right py-2 px-2 text-sm">{item.weight.toFixed(2)}</td>
+                  )}
+                  {!isPackingList && (
+                    <td className="text-right py-2 px-2 text-sm">
+                      ${item.unitPrice.toFixed(2)}
+                    </td>
+                  )}
                   {!isPackingList && <td className="text-right py-2 px-2 text-sm">${item.total.toFixed(2)}</td>}
-                  {isPackingList && <td className="text-right py-2 px-2 text-sm">{(item.weight * item.qty).toFixed(2)}</td>}
+                  {isPackingList && (
+                    <td className="text-right py-2 px-2 text-sm">
+                      {computeItemTotalWeight(item).toFixed(2)}
+                    </td>
+                  )}
                 </tr>
               ))}
-              <tr className="border-t-2 border-foreground font-semibold">
-                {isPackingList ? (
-                  <>
-                    {showTotalWeight ? (
-                      <>
-                        <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
-                        <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
-                      </>
-                    ) : (
-                      <td colSpan={4} className="py-2 px-2 text-sm"></td>
-                    )}
-                  </>
-                ) : showTotalWeight ? (
-                  <>
-                    <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight:</td>
-                    <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
-                    <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                    <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
-                  </>
-                ) : (
-                  <>
-                    <td colSpan={4} className="py-2 px-2 text-sm text-right"></td>
-                    <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
-                    <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
-                  </>
-                )}
-              </tr>
+              {invoice.includePackingWeight && totalPackingWeight > 0 && (
+                <tr className="border-b">
+                  <td colSpan={3} className="py-2 px-2 text-sm text-right">Packing Weight:</td>
+                  <td className="text-right py-2 px-2 text-sm">{totalPackingWeight.toFixed(2)} KG</td>
+                  <td className="py-2 px-2 text-sm"></td>
+                  <td className="py-2 px-2 text-sm"></td>
+                </tr>
+              )}
+              {isLastPage && (
+                <tr className="border-t-2 border-foreground font-semibold">
+                  {isPackingList ? (
+                    <>
+                      {showTotalWeight ? (
+                        <>
+                          <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight (kg):</td>
+                          <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
+                        </>
+                      ) : (
+                        <td colSpan={4} className="py-2 px-2 text-sm"></td>
+                      )}
+                    </>
+                  ) : showTotalWeight ? (
+                    <>
+                      <td colSpan={3} className="py-2 px-2 text-sm text-right">Total Weight (kg):</td>
+                      {invoice.companyType !== 'insumos' ? (
+                        <>
+                          <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)}</td>
+                          <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                          <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="text-right py-2 px-2 text-sm">{totalWeight.toFixed(2)} KG</td>
+                          <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                          <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <td colSpan={invoice.companyType === 'insumos' ? 4 : 4} className="py-2 px-2 text-sm text-right"></td>
+                      <td className="text-right py-2 px-2 text-sm">Subtotal:</td>
+                      <td className="text-right py-2 px-2 text-sm">${subtotal.toFixed(2)}</td>
+                    </>
+                  )}
+                </tr>
+              )}
             </tbody>
           </table>
 
           {/* Bank Details and Total / Weight Summary */}
-          {!isPackingList ? (
-            <div className="grid grid-cols-2 gap-6 mb-4">
-              <div>
-                <h3 className="font-semibold mb-1 text-sm">Bank Details:</h3>
-                <p className="text-xs">Bank: {company.bankDetails.bank}</p>
-                <p className="text-xs">SWIFT: {company.bankDetails.swift}</p>
-                <p className="text-xs">IBAN: {company.bankDetails.iban}</p>
+          {isLastPage && !isPackingList ? (
+            invoice.documentType === 'commercial' ? (
+              <div className="flex flex-col items-end mb-4 gap-1">
+                <div className="text-right">
+                  <div className="text-xs text-foreground space-y-1">
+                    <p>Subtotal: ${subtotal.toFixed(2)}</p>
+                    {showFreightLine && <p>Freight: ${freightCost.toFixed(2)}</p>}
+                    {showInsuranceLine && <p>Insurance: ${insuranceCost.toFixed(2)}</p>}
+                  </div>
+                  <p className="text-xs text-foreground mt-1">
+                    <span className="font-semibold text-base text-foreground">Total Amount:</span>
+                    <span className="font-bold text-xl ml-2">${totalAmount.toFixed(2)}</span>
+                  </p>
+                </div>
               </div>
-              
-              <div className="text-right">
-                <p className="text-lg font-bold">Total Amount</p>
-                <p className="text-xl font-bold">${subtotal.toFixed(2)}</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-6 mb-4">
+                <div>
+                  <h3 className="font-semibold mb-1 text-sm">Bank Details:</h3>
+                  <p className="text-xs">Bank: {company.bankDetails.bank}</p>
+                  <p className="text-xs">SWIFT: {company.bankDetails.swift}</p>
+                  <p className="text-xs">IBAN: {company.bankDetails.iban}</p>
+                </div>
+                
+                <div className="text-right">
+                  <p className="text-lg font-bold">Total Amount</p>
+                  <div className="text-xs text-foreground space-y-1">
+                    <p>Subtotal: ${subtotal.toFixed(2)}</p>
+                    {showFreightLine && <p>Freight: ${freightCost.toFixed(2)}</p>}
+                    {showInsuranceLine && <p>Insurance: ${insuranceCost.toFixed(2)}</p>}
+                  </div>
+                  {invoice.includePackingWeight && totalPackingWeight > 0 && (
+                    <p className="text-xs font-semibold text-muted-foreground mt-1">
+                      Total Packing Weight (kg): {totalPackingWeight.toFixed(2)}
+                    </p>
+                  )}
+                  <p className="text-xl font-bold mt-1">${totalAmount.toFixed(2)}</p>
+                </div>
               </div>
-            </div>
-          ) : showTotalWeight ? (
+            )
+          ) : isLastPage && showTotalWeight ? (
             <div className="mb-4 p-4 bg-muted rounded">
               <div className="text-right">
                 <p className="text-lg font-bold">Total Shipment Weight</p>
-                <p className="text-xl font-bold">{totalWeight.toFixed(2)} KG</p>
+                <p className="text-xl font-bold">{totalWeight.toFixed(2)} kg</p>
               </div>
             </div>
           ) : null}
 
           {/* Notes Section */}
-          {invoice.notes && (
+          {isLastPage && hasNotes && (
             <div className="mt-4 mb-2">
               <h3 className="font-semibold mb-1 text-sm">Note:</h3>
               <p className="text-xs whitespace-pre-wrap">{invoice.notes}</p>
@@ -189,38 +411,53 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
           )}
 
           {/* Signature Area */}
+          {isLastPage && (
           <div className="mt-6 pt-4 border-t">
             {!isPackingList ? (
-              <>
-                <h3 className="font-semibold mb-3 text-sm">CLIENT APPROVAL:</h3>
-                <div className="grid grid-cols-2 gap-6 mt-8">
-                  <div>
-                    <div className="border-t border-foreground pt-1">
-                      <p className="font-semibold text-sm">{invoice.clientRepresentative}</p>
-                      <p className="text-xs text-muted-foreground">{invoice.clientCompanyPosition}</p>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="border-t border-foreground pt-1">
-                      <p className="font-semibold text-sm">{invoice.clientPosition}</p>
-                      <p className="text-xs text-muted-foreground">{invoice.clientPositionTitle}</p>
-                    </div>
+              invoice.documentType === 'commercial' ? (
+                <div className="mt-8 flex justify-center">
+                  <div className="border-t border-foreground pt-1 max-w-sm text-center">
+                    <p className="font-semibold text-sm">{repName}</p>
+                    <p className="text-xs text-muted-foreground">{repTitle}</p>
                   </div>
                 </div>
-              </>
+              ) : (
+                <>
+                  <h3 className="font-semibold mb-3 text-sm">CLIENT APPROVAL:</h3>
+                  <div className="grid grid-cols-2 gap-6 mt-8">
+                    <div>
+                      <div className="border-t border-foreground pt-1">
+                        <p className="font-semibold text-sm">{invoice.clientRepresentative}</p>
+                        <p className="text-xs text-muted-foreground">{invoice.clientCompanyPosition}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="border-t border-foreground pt-1">
+                        <p className="font-semibold text-sm">{repName}</p>
+                        <p className="text-xs text-muted-foreground">{repTitle}</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )
             ) : (
-              <>
-                <h3 className="font-semibold mb-3 text-sm">PREPARED BY:</h3>
-                <div className="mt-8">
-                  <div className="border-t border-foreground pt-1 max-w-sm">
-                    <p className="font-semibold text-sm">{invoice.clientPosition}</p>
-                    <p className="text-xs text-muted-foreground">{invoice.clientPositionTitle}</p>
-                  </div>
+              <div className="mt-8 flex justify-center">
+                <div className="border-t border-foreground pt-1 max-w-sm text-center">
+                  <p className="font-semibold text-sm">{repName}</p>
+                  <p className="text-xs text-muted-foreground">{repTitle}</p>
                 </div>
-              </>
+              </div>
             )}
           </div>
+          )}
+
+          <div className="mt-6 text-right text-xs text-muted-foreground">
+            Page {pageIndex + 1} of {totalPages}
+          </div>
+          </div>
         </div>
+          );
+        })}
       </div>
 
       <style>{`

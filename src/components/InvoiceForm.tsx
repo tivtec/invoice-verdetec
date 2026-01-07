@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
-import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber } from '@/utils/supabaseStorage';
+import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber, getOrderById, getImporters, getProducts, ProductRecord } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
@@ -25,6 +25,20 @@ const invoiceSchema = z.object({
   importerCountry: z.string().min(1, 'Required field'),
   incoterm: z.string().min(1, 'Required field'),
   modeOfTransport: z.string().min(1, 'Required field'),
+  portOfLoading: z.string().optional().or(z.literal('')),
+  portOfDischarge: z.string().optional().or(z.literal('')),
+  placeOfDelivery: z.string().optional().or(z.literal('')),
+  placeOfDestination: z.string().optional().or(z.literal('')),
+  freightCost: z.preprocess((val) => {
+    if (val === '' || val === null || val === undefined) return undefined;
+    const num = Number(val);
+    return Number.isFinite(num) ? num : undefined;
+  }, z.number().optional()),
+  insuranceCost: z.preprocess((val) => {
+    if (val === '' || val === null || val === undefined) return undefined;
+    const num = Number(val);
+    return Number.isFinite(num) ? num : undefined;
+  }, z.number().optional()),
   availability: z.string().min(1, 'Required field'),
   paymentMethod: z.string().min(1, 'Required field'),
   clientRepresentative: z.string().min(1, 'Required field'),
@@ -46,10 +60,15 @@ interface InvoiceFormProps {
 export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
+  const initialItems = invoice?.items || [];
+  const initialIncludePacking = invoice?.includePackingWeight ?? (initialItems.some(i => (i.packingWeight || 0) > 0) || (invoice?.packingWeight || 0) > 0);
+  const [items, setItems] = useState<InvoiceItem[]>(initialItems);
+  const [manualPackingWeight, setManualPackingWeight] = useState<number>(invoice?.totalPackingWeight || invoice?.packingWeight || 0);
   const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
-  const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
-  const [includePackingWeight, setIncludePackingWeight] = useState(invoice?.includePackingWeight ?? false);
+  const [includePackingWeight, setIncludePackingWeight] = useState(initialIncludePacking);
+  const [importers, setImporters] = useState<any[]>([]);
+  const [selectedImporterId, setSelectedImporterId] = useState<string>('');
+  const [products, setProducts] = useState<ProductRecord[]>([]);
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
@@ -57,6 +76,8 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
+      freightCost: undefined,
+      insuranceCost: undefined,
       availability: '30 days',
       paymentMethod: '100% PRIOR TO SHIPPING.',
       clientPosition: 'Rafael Hermes',
@@ -66,24 +87,67 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   });
 
   const companyType = watch('companyType');
+  const incoterm = watch('incoterm');
+  const showFreightCost = ['CFR', 'CPT', 'CIF', 'CIP'].includes(incoterm);
+  const showInsuranceCost = ['CIF', 'CIP'].includes(incoterm);
+  const showPortFields = ['FOB', 'FAS', 'CIF', 'CFR'].includes(incoterm);
+  const showPlaceOfDelivery =
+    incoterm === 'CPT' ||
+    incoterm === 'CIP' ||
+    incoterm === 'FCA';
+  const showPlaceOfDestination =
+    incoterm === 'CPT' ||
+    incoterm === 'CIP' ||
+    incoterm === 'DAP' ||
+    incoterm === 'DPU' ||
+    incoterm === 'DDP';
+  const sanitizeNumber = (val: any) => {
+    if (typeof val === 'string') {
+      const parsed = parseFloat(val.replace(',', '.'));
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    const num = Number(val);
+    return Number.isFinite(num) ? num : undefined;
+  };
+  const freightCostValue = showFreightCost ? (sanitizeNumber(watch('freightCost')) ?? 0) : 0;
+  const insuranceCostValue = showInsuranceCost ? (sanitizeNumber(watch('insuranceCost')) ?? 0) : 0;
+
+  // Clear fields when hidden
+  if (!showFreightCost && watch('freightCost')) {
+    setValue('freightCost', undefined);
+  }
+  if (!showInsuranceCost && watch('insuranceCost')) {
+    setValue('insuranceCost', undefined);
+  }
+  if (!showPortFields) {
+    if (watch('portOfLoading')) setValue('portOfLoading', undefined);
+    if (watch('portOfDischarge')) setValue('portOfDischarge', undefined);
+  }
+  if (!showPlaceOfDelivery && watch('placeOfDelivery')) {
+    setValue('placeOfDelivery', undefined);
+  }
+  if (!showPlaceOfDestination && watch('placeOfDestination')) {
+    setValue('placeOfDestination', undefined);
+  }
   
   // Set default notes for Insumos when company type changes
-  const currentNotes = watch('notes');
-  if (companyType === 'insumos' && currentNotes === '') {
-    setValue('notes', 'Unit price refers to price per kilogram (Kg).');
-  } else if (companyType === 'equipamentos' && currentNotes === 'Unit price refers to price per kilogram (Kg).') {
-    setValue('notes', '');
-  }
+  const notePlaceholder =
+    invoice?.documentType === 'packing'
+      ? 'Product Dimensions:\nNet Weight:\nGross Weight:\nCubic Measurement (CBM):\nPacking Specifications:'
+      : companyType === 'insumos'
+        ? 'Unit price refers to price per kilogram (Kg).'
+        : 'Add notes that will appear at the bottom of the invoice (optional)';
 
   const addItem = () => {
     setItems([...items, {
       id: Date.now().toString(),
       hsCode: '',
-      qty: companyType === 'insumos' ? 1 : 0,
+      qty: companyType === 'insumos' ? 0 : 0,
       description: '',
-      weight: 0,
+      weight: companyType === 'insumos' ? 1 : 0,
       unitPrice: 0,
-      total: 0
+      total: 0,
+      packingWeight: 0,
     }]);
   };
 
@@ -95,12 +159,16 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        // For INSUMOS: qty is always 1, price is per KG, total = weight * unitPrice
         if (companyType === 'insumos') {
-          updated.qty = 1;
-          if (field === 'weight' || field === 'unitPrice') {
-            updated.total = updated.weight * updated.unitPrice;
+          // For INSUMOS: qty represents KG purchased; unit price is per KG
+          if (field === 'qty' || field === 'weight') {
+            updated.qty = Number(value) || 0;
+            updated.weight = 1; // unit weight as 1kg to keep totals consistent
           }
+          if (field === 'unitPrice') {
+            updated.unitPrice = Number(value) || 0;
+          }
+          updated.total = (updated.qty || 0) * (updated.unitPrice || 0);
         } else {
           // For EQUIPAMENTOS: normal logic
           if (field === 'qty' || field === 'unitPrice') {
@@ -113,28 +181,134 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     }));
   };
 
+  const getTotalPackingWeight = () => {
+    if (!includePackingWeight) return 0;
+    if (manualPackingWeight > 0) return manualPackingWeight;
+    return items.reduce((sum, item) => sum + (item.packingWeight || 0) * (item.qty || 0), 0);
+  };
+
+  useEffect(() => {
+    const loadImporters = async () => {
+      try {
+        const data = await getImporters();
+        setImporters(data);
+      } catch (err) {
+        console.error('Error loading importers', err);
+      }
+    };
+    const loadProducts = async () => {
+      try {
+        const data = await getProducts();
+        setProducts(data);
+      } catch (err) {
+        console.error('Error loading products', err);
+      }
+    };
+    loadImporters();
+    loadProducts();
+  }, []);
+
+  const handleSelectImporter = (importerId: string) => {
+    setSelectedImporterId(importerId);
+    const imp = importers.find((i) => i.id === importerId);
+    if (imp) {
+      setValue('importerCompanyName', imp.company_name);
+      setValue('importerTaxId', imp.tax_id);
+      setValue('importerAddress', imp.address);
+      setValue('importerZipCode', imp.zip_code);
+      setValue('importerPhone', imp.phone);
+      setValue('importerEmail', imp.email || '');
+      setValue('importerCountry', imp.country);
+    }
+  };
+
+  const getErrorMessage = (error: unknown) => {
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string') {
+      return (error as any).message;
+    }
+    if (error && typeof error === 'object' && 'error_description' in error && typeof (error as any).error_description === 'string') {
+      return (error as any).error_description;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'Unknown error';
+    }
+  };
+
+  const handleSelectProduct = (itemId: string, productId: string) => {
+    const prod = products.find((p) => p.id === productId);
+    if (!prod) return;
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === itemId
+          ? {
+              ...it,
+              hsCode: prod.hs_code || it.hsCode,
+              description: prod.description || it.description,
+              weight: companyType === 'insumos' ? 1 : prod.weight_kg != null ? prod.weight_kg : it.weight,
+              qty: companyType === 'insumos'
+                ? (prod.weight_kg != null ? prod.weight_kg : it.qty)
+                : it.qty || (companyType === 'equipamentos' ? 1 : it.qty),
+              total:
+                companyType === 'insumos'
+                  ? ((prod.weight_kg != null ? prod.weight_kg : it.qty) || 0) * it.unitPrice
+                  : (it.qty || 0) * it.unitPrice,
+            }
+          : it
+      )
+    );
+  };
+
   const onSubmit = async (data: InvoiceFormData) => {
     try {
-      const invoiceNumber = data.invoiceNumber || await generateInvoiceNumber();
+      const freightForSave = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
+      const insuranceForSave = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+
+      const existingBase = invoice?.invoiceNumber?.match(/\d{6}$/)?.[0];
+      let baseNumber = existingBase;
+      const isNewInvoice = !invoice;
+
+      if (!baseNumber && orderId) {
+        const orderFromDb = await getOrderById(orderId);
+        baseNumber = orderFromDb?.base_number || baseNumber;
+      }
+
+      // When creating a brand-new invoice, always generate a fresh base/number
+      if (!baseNumber && isNewInvoice) {
+        baseNumber = await getBaseNumber();
+      }
+
+      if (!baseNumber) {
+        baseNumber = await getBaseNumber();
+      }
+
+      const invoiceNumber = `PI-${baseNumber}`;
+      const totalPackingWeight = getTotalPackingWeight();
       
-      // Use provided orderId or create new order
-      let targetOrderId = orderId;
-      
-      if (!targetOrderId) {
-        const baseNumber = await getBaseNumber();
-        let order = await getOrderByBaseNumber(baseNumber);
-        if (!order) {
-          order = await createOrder(baseNumber);
-        }
+      // Use provided orderId or create/find by base number to keep documents grouped
+      let targetOrderId = orderId || invoice?.orderId;
+      let order = await getOrderByBaseNumber(baseNumber);
+      if (order) {
         targetOrderId = order.id;
+      } else if (!targetOrderId) {
+        order = await createOrder(baseNumber);
+        targetOrderId = order.id;
+      }
+
+      if (!targetOrderId) {
+        throw new Error('Could not determine order ID');
       }
 
       const invoiceData: Invoice = {
         id: invoice?.id || crypto.randomUUID(),
         invoiceNumber,
         documentType: 'proforma',
+        orderId: targetOrderId,
         issueDate: new Date().toISOString().split('T')[0],
-        placeOfIssue: 'Brusque-SC-Brasil',
+        placeOfIssue: 'Brusque-SC-Brazil',
         currency: 'US$',
         items,
         createdAt: invoice?.createdAt || new Date().toISOString(),
@@ -151,14 +325,22 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         modeOfTransport: data.modeOfTransport,
         availability: data.availability,
         paymentMethod: data.paymentMethod,
+        freightCost: freightForSave,
+        insuranceCost: insuranceForSave,
+        portOfLoading: data.portOfLoading,
+        portOfDischarge: data.portOfDischarge,
+        placeOfDelivery: data.placeOfDelivery,
+        placeOfDestination: data.placeOfDestination,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
         clientPosition: data.clientPosition,
         clientPositionTitle: data.clientPositionTitle,
         notes: data.notes,
         showTotalWeight,
-        packingWeight,
+        packingWeight: totalPackingWeight,
         includePackingWeight,
+        totalPackingWeight,
+        manualPackingWeight: manualPackingWeight || undefined,
       };
 
       await saveInvoice(invoiceData, targetOrderId);
@@ -173,9 +355,10 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       }
     } catch (error) {
       console.error('Error saving invoice:', error);
+      const message = getErrorMessage(error);
       toast({
         title: 'Error',
-        description: 'Failed to save invoice. Please try again.',
+        description: `Failed to save invoice: ${message}`,
         variant: 'destructive',
       });
     }
@@ -183,72 +366,96 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
 
   const handlePrint = () => {
     const data = watch();
-    const invoiceData: Invoice = {
-      id: invoice?.id || Date.now().toString(),
-      invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
-      documentType: 'proforma',
-      issueDate: new Date().toLocaleDateString('en-US'),
-      placeOfIssue: 'Brusque-SC-Brasil',
-      currency: 'US$',
-      items,
-      createdAt: invoice?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      companyType: data.companyType,
-      importerCompanyName: data.importerCompanyName,
-      importerTaxId: data.importerTaxId,
-      importerAddress: data.importerAddress,
-      importerZipCode: data.importerZipCode,
-      importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail || '',
-      importerCountry: data.importerCountry,
-      incoterm: data.incoterm,
+    const totalPackingWeight = getTotalPackingWeight();
+    const freightForPreview = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
+    const insuranceForPreview = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+      const invoiceData: Invoice = {
+        id: invoice?.id || Date.now().toString(),
+        invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
+        documentType: 'proforma',
+        orderId: orderId || invoice?.orderId,
+        issueDate: new Date().toLocaleDateString('en-US'),
+        placeOfIssue: 'Brusque-SC-Brazil',
+        currency: 'US$',
+        items,
+        createdAt: invoice?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        companyType: data.companyType,
+        importerCompanyName: data.importerCompanyName,
+        importerTaxId: data.importerTaxId,
+        importerAddress: data.importerAddress,
+        importerZipCode: data.importerZipCode,
+        importerPhone: data.importerPhone,
+        importerEmail: data.importerEmail || '',
+        importerCountry: data.importerCountry,
+        incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
       availability: data.availability,
       paymentMethod: data.paymentMethod,
+      freightCost: freightForPreview,
+      insuranceCost: insuranceForPreview,
+      portOfLoading: data.portOfLoading,
+      portOfDischarge: data.portOfDischarge,
+      placeOfDelivery: data.placeOfDelivery,
+      placeOfDestination: data.placeOfDestination,
       clientRepresentative: data.clientRepresentative,
-      clientCompanyPosition: data.clientCompanyPosition,
-      clientPosition: data.clientPosition,
-      clientPositionTitle: data.clientPositionTitle,
-      notes: data.notes,
-      showTotalWeight,
-      packingWeight,
-      includePackingWeight,
-    };
+        clientCompanyPosition: data.clientCompanyPosition,
+        clientPosition: data.clientPosition,
+        clientPositionTitle: data.clientPositionTitle,
+        notes: data.notes,
+        showTotalWeight,
+        packingWeight: totalPackingWeight,
+        includePackingWeight,
+        totalPackingWeight,
+        manualPackingWeight: manualPackingWeight || undefined,
+      };
     setShowPreview(true);
   };
 
   if (showPreview) {
     const data = watch();
+    const totalPackingWeight = getTotalPackingWeight();
+    const freightForPreview = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
+    const insuranceForPreview = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
       invoiceNumber: data.invoiceNumber || invoice?.invoiceNumber || 'PI-250001',
       documentType: 'proforma',
+      orderId: orderId || invoice?.orderId,
       issueDate: new Date().toLocaleDateString('en-US'),
-      placeOfIssue: 'Brusque-SC-Brasil',
-      currency: 'US$',
-      items,
-      createdAt: invoice?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      companyType: data.companyType,
-      importerCompanyName: data.importerCompanyName,
-      importerTaxId: data.importerTaxId,
-      importerAddress: data.importerAddress,
-      importerZipCode: data.importerZipCode,
-      importerPhone: data.importerPhone,
-      importerEmail: data.importerEmail || '',
-      importerCountry: data.importerCountry,
-      incoterm: data.incoterm,
-      modeOfTransport: data.modeOfTransport,
-      availability: data.availability,
-      paymentMethod: data.paymentMethod,
-      clientRepresentative: data.clientRepresentative,
-      clientCompanyPosition: data.clientCompanyPosition,
-      clientPosition: data.clientPosition,
-      clientPositionTitle: data.clientPositionTitle,
-      notes: data.notes,
+      placeOfIssue: 'Brusque-SC-Brazil',
+    currency: 'US$',
+    items,
+    createdAt: invoice?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    companyType: data.companyType,
+    importerCompanyName: data.importerCompanyName,
+    importerTaxId: data.importerTaxId,
+    importerAddress: data.importerAddress,
+    importerZipCode: data.importerZipCode,
+    importerPhone: data.importerPhone,
+    importerEmail: data.importerEmail || '',
+    importerCountry: data.importerCountry,
+    incoterm: data.incoterm,
+    modeOfTransport: data.modeOfTransport,
+    availability: data.availability,
+    paymentMethod: data.paymentMethod,
+    freightCost: freightForPreview,
+    insuranceCost: insuranceForPreview,
+    portOfLoading: data.portOfLoading,
+    portOfDischarge: data.portOfDischarge,
+    placeOfDelivery: data.placeOfDelivery,
+    placeOfDestination: data.placeOfDestination,
+    clientRepresentative: data.clientRepresentative,
+    clientCompanyPosition: data.clientCompanyPosition,
+    clientPosition: data.clientPosition,
+    clientPositionTitle: data.clientPositionTitle,
+    notes: data.notes,
       showTotalWeight,
-      packingWeight,
+      packingWeight: totalPackingWeight,
       includePackingWeight,
+      totalPackingWeight,
+      manualPackingWeight: manualPackingWeight || undefined,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
@@ -256,7 +463,14 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
-  const totalWeight = itemsWeight + (includePackingWeight ? packingWeight : 0);
+  const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
+  const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
+  const totalAmount =
+    ['CIF', 'CIP'].includes(incoterm)
+      ? subtotal + freightCostValue + insuranceCostValue
+      : ['CFR', 'CPT'].includes(incoterm)
+        ? subtotal + freightCostValue
+        : subtotal;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -290,6 +504,29 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Importer / Buyer Data</h3>
+
+          {importers.length > 0 && (
+            <div className="grid grid-cols-2 gap-4 items-end">
+              <div>
+                <Label>Escolher cliente cadastrado</Label>
+                <select
+                  className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2"
+                  value={selectedImporterId}
+                  onChange={(e) => handleSelectImporter(e.target.value)}
+                >
+                  <option value="">Selecione um cliente...</option>
+                  {importers.map((imp) => (
+                    <option key={imp.id} value={imp.id}>
+                      {imp.company_name} — {imp.tax_id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Ao selecionar, os dados do cliente são preenchidos automaticamente.
+              </p>
+            </div>
+          )}
           
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -390,72 +627,213 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
             </div>
           </div>
 
+          {/* Ports for maritime Incoterms */}
+          {showPortFields && (
+            <div className="grid grid-cols-2 gap-4 mt-4 p-4 border rounded-md bg-muted/30">
+              <div>
+                <Label>Port of Loading (optional)</Label>
+                <Input {...register('portOfLoading')} placeholder="e.g., Port of Santos" />
+              </div>
+              <div>
+                <Label>Port of Discharge (optional)</Label>
+                <Input {...register('portOfDischarge')} placeholder="e.g., Port of Miami" />
+              </div>
+            </div>
+          )}
+
+          {/* Multimodal place fields */}
+          {(showPlaceOfDelivery || showPlaceOfDestination) && (
+            <div className={`grid gap-4 mt-4 p-4 border rounded-md bg-muted/30 ${showPlaceOfDelivery && showPlaceOfDestination ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {showPlaceOfDelivery && (
+                <div>
+                  <Label>Place of Delivery (optional)</Label>
+                  <Input {...register('placeOfDelivery')} placeholder="e.g., Warehouse Address" />
+                </div>
+              )}
+              {showPlaceOfDestination && (
+                <div>
+                  <Label>Place of Destination (optional)</Label>
+                  <Input {...register('placeOfDestination')} placeholder="e.g., Final Destination" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Freight / Insurance */}
+          {(showFreightCost || showInsuranceCost) && (
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              {showFreightCost && (
+                <div>
+                  <Label>Freight Cost (optional)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    {...register('freightCost', { valueAsNumber: true })}
+                  />
+                </div>
+              )}
+              {showInsuranceCost && (
+                <div>
+                  <Label>Insurance Cost (optional)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    {...register('insuranceCost', { valueAsNumber: true })}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <h3 className="font-semibold text-lg mt-6">Items</h3>
           
           <div className="space-y-2">
             {items.map((item) => (
-              <div key={item.id} className="grid grid-cols-6 gap-2 items-end">
-                <div>
-                  <Label className="text-xs">HS CODE</Label>
-                  <Input 
-                    value={item.hsCode}
-                    onChange={(e) => updateItem(item.id, 'hsCode', e.target.value)}
-                    placeholder="NCM"
-                  />
+              companyType === 'insumos' ? (
+                <div key={item.id} className="grid grid-cols-7 gap-2 items-end">
+                  <div>
+                    <Label className="text-xs">HS CODE</Label>
+                    <Input
+                      value={item.hsCode}
+                      onChange={(e) => updateItem(item.id, 'hsCode', e.target.value)}
+                      placeholder="NCM"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Produto (cadastrado)</Label>
+                    <select
+                      className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-xs"
+                      value=""
+                      onChange={(e) => {
+                        handleSelectProduct(item.id, e.target.value);
+                        e.target.selectedIndex = 0;
+                      }}
+                    >
+                      <option value="">Selecionar produto...</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.description} (HS: {p.hs_code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">QTY (kg)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={item.qty || ''}
+                      onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">Description</Label>
+                    <Input
+                      value={item.description}
+                      onChange={(e) => updateItem(item.id, 'description', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Unit Price (per kg)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={item.unitPrice || ''}
+                      onChange={(e) => updateItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <Label className="text-xs">Total</Label>
+                      <Input value={`$${item.total.toFixed(2)}`} disabled />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => removeItem(item.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                {companyType !== 'insumos' && (
+              ) : (
+                <div key={item.id} className="grid grid-cols-7 gap-2 items-end">
+                  <div>
+                    <Label className="text-xs">HS CODE</Label>
+                    <Input
+                      value={item.hsCode}
+                      onChange={(e) => updateItem(item.id, 'hsCode', e.target.value)}
+                      placeholder="NCM"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Produto (cadastrado)</Label>
+                    <select
+                      className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2 text-xs"
+                      value=""
+                      onChange={(e) => {
+                        handleSelectProduct(item.id, e.target.value);
+                        e.target.selectedIndex = 0;
+                      }}
+                    >
+                      <option value="">Selecionar produto...</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.description} (HS: {p.hs_code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div>
                     <Label className="text-xs">QTY</Label>
-                    <Input 
+                    <Input
                       type="number"
                       value={item.qty || ''}
                       onChange={(e) => updateItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
                     />
                   </div>
-                )}
-                <div className={companyType === 'insumos' ? 'col-span-2' : ''}>
-                  <Label className="text-xs">Description</Label>
-                  <Input 
-                    value={item.description}
-                    onChange={(e) => updateItem(item.id, 'description', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Weight (KG)</Label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    value={item.weight || ''}
-                    onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">{companyType === 'insumos' ? 'Price per KG' : 'Unit Price'}</Label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    value={item.unitPrice || ''}
-                    onChange={(e) => updateItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div className="flex gap-2 items-center">
-                  <div className="flex-1">
-                    <Label className="text-xs">Total</Label>
-                    <Input 
-                      value={`$${item.total.toFixed(2)}`}
-                      disabled
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    <Input
+                      value={item.description}
+                      onChange={(e) => updateItem(item.id, 'description', e.target.value)}
                     />
                   </div>
-                  <Button 
-                    type="button" 
-                    variant="destructive" 
-                    size="icon"
-                    onClick={() => removeItem(item.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div>
+                    <Label className="text-xs">Unit Weight (KG)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={item.weight || ''}
+                      onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Unit Price</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={item.unitPrice || ''}
+                      onChange={(e) => updateItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <Label className="text-xs">Total</Label>
+                      <Input value={`$${item.total.toFixed(2)}`} disabled />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => removeItem(item.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )
             ))}
           </div>
 
@@ -466,28 +844,25 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
           <div className="bg-muted p-4 rounded-md">
             <div className="flex flex-col gap-3 mb-2">
               <div className="flex items-center gap-2">
-                <Label htmlFor="packingWeight">Packing Weight (KG) - Optional:</Label>
-                <Input 
-                  id="packingWeight"
-                  type="number"
-                  step="0.01"
-                  value={packingWeight || ''}
-                  onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
-                  className="w-32"
+                <Checkbox
+                  id="includePackingWeight"
+                  checked={includePackingWeight}
+                  onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
                 />
-              </div>
-              {packingWeight > 0 && (
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="includePackingWeight"
-                    checked={includePackingWeight}
-                    onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
+                <Label htmlFor="includePackingWeight" className="cursor-pointer">
+                  Add Packing Weight per item (shows in documents)
+                </Label>
+                {includePackingWeight && (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={manualPackingWeight || ''}
+                    onChange={(e) => setManualPackingWeight(parseFloat(e.target.value) || 0)}
+                    placeholder="Total packing weight (KG)"
+                    className="w-40"
                   />
-                  <Label htmlFor="includePackingWeight" className="cursor-pointer">
-                    Include Packing Weight in Total Weight calculation
-                  </Label>
-                </div>
-              )}
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="showTotalWeight"
@@ -499,12 +874,29 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 </Label>
               </div>
             </div>
-            <div className="flex justify-between font-semibold">
-              {showTotalWeight && <span>Total Weight: {totalWeight.toFixed(2)} KG</span>}
-              <span className={!showTotalWeight ? 'ml-auto' : ''}>Subtotal: ${subtotal.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-end font-bold text-lg mt-2">
-              Total: ${subtotal.toFixed(2)}
+            <div className="flex flex-col gap-1 font-semibold">
+              {includePackingWeight && (
+                <div className="flex justify-end">
+                  <span>Total Packing Weight: {totalPackingWeight.toFixed(2)} KG</span>
+                </div>
+              )}
+              {showTotalWeight && (
+                <div className="flex justify-end">
+                  <span>Total Weight: {totalWeight.toFixed(2)} KG</span>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <span>Subtotal: ${subtotal.toFixed(2)}</span>
+              </div>
+              {(freightCostValue > 0 || insuranceCostValue > 0) && (
+                <div className="flex justify-end gap-6 text-sm mt-1">
+                  {freightCostValue > 0 && <span>+ Freight: ${freightCostValue.toFixed(2)}</span>}
+                  {insuranceCostValue > 0 && <span>+ Insurance: ${insuranceCostValue.toFixed(2)}</span>}
+                </div>
+              )}
+              <div className="flex justify-end font-bold text-lg">
+                Total: ${totalAmount.toFixed(2)}
+              </div>
             </div>
           </div>
 
@@ -514,7 +906,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
             <Label>Notes</Label>
             <Textarea 
               {...register('notes')} 
-              placeholder="Add notes that will appear at the bottom of the invoice (optional)"
+              placeholder={notePlaceholder}
               rows={3}
             />
           </div>

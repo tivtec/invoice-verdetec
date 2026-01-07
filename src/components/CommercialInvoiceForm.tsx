@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generateCommercialInvoiceNumber } from '@/utils/invoiceStorage';
-import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber } from '@/utils/supabaseStorage';
+import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 
@@ -26,12 +26,11 @@ const commercialSchema = z.object({
   importerCountry: z.string().min(1, 'Required field'),
   incoterm: z.string().min(1, 'Required field'),
   modeOfTransport: z.string().min(1, 'Required field'),
-  availability: z.string().optional(),
   paymentMethod: z.string().min(1, 'Required field'),
-  clientRepresentative: z.string().min(1, 'Required field'),
-  clientCompanyPosition: z.string().min(1, 'Required field'),
-  clientPosition: z.string().default('Rafael Hermes'),
-  clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
+  clientRepresentative: z.string().default('N/A'),
+  clientCompanyPosition: z.string().default('N/A'),
+  clientPosition: z.string().default('Caroline Franzen'),
+  clientPositionTitle: z.string().default('Verdetec Administrative Manager'),
   notes: z.string().optional(),
   invoiceNumber: z.string().optional(),
   // Port fields for maritime incoterms (CIF/CFR)
@@ -40,6 +39,8 @@ const commercialSchema = z.object({
   // Place fields for multimodal incoterms (CIP/CPT)
   placeOfDelivery: z.string().optional(),
   placeOfDestination: z.string().optional(),
+  freightCost: z.coerce.number().optional(),
+  insuranceCost: z.coerce.number().optional(),
 });
 
 type CommercialFormData = z.infer<typeof commercialSchema>;
@@ -51,12 +52,29 @@ interface CommercialInvoiceFormProps {
 }
 
 export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialInvoiceFormProps) => {
+  const suggestedRepName = 'Caroline Franzen';
+  const suggestedRepTitle = 'Verdetec Administrative Manager';
+  const normalizeRepName = (name?: string) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed || trimmed === 'Rafael Hermes') return suggestedRepName;
+    return trimmed;
+  };
+  const normalizeRepTitle = (title?: string) => {
+    const trimmed = (title || '').trim();
+    if (!trimmed || trimmed.toUpperCase() === 'VERDETEC SALES MANAGER') return suggestedRepTitle;
+    return trimmed;
+  };
+
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[]>(invoice?.items || []);
-  const [packingWeight, setPackingWeight] = useState(invoice?.packingWeight || 0);
-  const [includePackingWeight, setIncludePackingWeight] = useState(invoice?.includePackingWeight ?? false);
+  const initialItems = invoice?.items || [];
+  const initialIncludePacking = invoice?.includePackingWeight ?? (initialItems.some(i => (i.packingWeight || 0) > 0) || (invoice?.packingWeight || 0) > 0);
+  const [items, setItems] = useState<InvoiceItem[]>(initialItems);
+  const [manualPackingWeight, setManualPackingWeight] = useState<number>(invoice?.totalPackingWeight || invoice?.packingWeight || 0);
+  const [includePackingWeight, setIncludePackingWeight] = useState(initialIncludePacking);
   const [showTotalWeight, setShowTotalWeight] = useState(invoice?.showTotalWeight ?? true);
+  const [importers, setImporters] = useState<any[]>([]);
+  const [selectedImporterId, setSelectedImporterId] = useState<string>('');
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<CommercialFormData>({
     resolver: zodResolver(commercialSchema),
@@ -65,43 +83,71 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       invoiceNumber: invoice.documentType === 'proforma' 
         ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
         : invoice.invoiceNumber,
-      clientPosition: 'Caroline Franzen',
-      clientPositionTitle: 'Verdetec Administrative Manager',
+      clientPosition: normalizeRepName(invoice.clientPosition),
+      clientPositionTitle: normalizeRepTitle(invoice.clientPositionTitle),
     } : {
       companyType: 'equipamentos',
       incoterm: 'EXW',
       modeOfTransport: 'SEA FREIGHT',
       paymentMethod: '100% PRIOR TO SHIPPING.',
-      clientPosition: 'Caroline Franzen',
-      clientPositionTitle: 'Verdetec Administrative Manager',
+      clientPosition: suggestedRepName,
+      clientPositionTitle: suggestedRepTitle,
+      clientRepresentative: 'N/A',
+      clientCompanyPosition: 'N/A',
       notes: '',
     }
   });
 
   const companyType = watch('companyType');
   const incoterm = watch('incoterm');
+  const showFreightCost = ['CFR', 'CPT', 'CIF', 'CIP'].includes(incoterm);
+  const showInsuranceCost = ['CIF', 'CIP'].includes(incoterm);
+  const showPortFields = ['FOB', 'FAS', 'CIF', 'CFR'].includes(incoterm);
+  const showPlaceOfDelivery =
+    incoterm === 'CPT' ||
+    incoterm === 'CIP' ||
+    incoterm === 'FCA';
+  const showPlaceOfDestination =
+    incoterm === 'CPT' ||
+    incoterm === 'CIP' ||
+    incoterm === 'DAP' ||
+    incoterm === 'DPU' ||
+    incoterm === 'DDP';
+  const isMaritimeIncoterm = showPortFields;
+  const isMultimodalIncoterm = showPlaceOfDelivery || showPlaceOfDestination;
+  const freightCostValue = showFreightCost ? Number(watch('freightCost') || 0) : 0;
+  const insuranceCostValue = showInsuranceCost ? Number(watch('insuranceCost') || 0) : 0;
   
-  // Determine if port/place fields should be shown
-  const isMaritimeIncoterm = ['CIF', 'CFR'].includes(incoterm);
-  const isMultimodalIncoterm = ['CIP', 'CPT'].includes(incoterm);
-  
-  // Set default notes for Insumos when company type changes
-  const currentNotes = watch('notes');
-  if (companyType === 'insumos' && currentNotes === '') {
-    setValue('notes', 'Unit price refers to price per kilogram (Kg).');
-  } else if (companyType === 'equipamentos' && currentNotes === 'Unit price refers to price per kilogram (Kg).') {
-    setValue('notes', '');
+  // Clear freight/insurance when Incoterm does not require
+  if (!showFreightCost && watch('freightCost')) {
+    setValue('freightCost', undefined);
+  }
+  if (!showInsuranceCost && watch('insuranceCost')) {
+    setValue('insuranceCost', undefined);
+  }
+
+  // Clear port/place fields when hidden
+  if (!showPortFields) {
+    if (watch('portOfLoading')) setValue('portOfLoading', undefined);
+    if (watch('portOfDischarge')) setValue('portOfDischarge', undefined);
+  }
+  if (!showPlaceOfDelivery && watch('placeOfDelivery')) {
+    setValue('placeOfDelivery', undefined);
+  }
+  if (!showPlaceOfDestination && watch('placeOfDestination')) {
+    setValue('placeOfDestination', undefined);
   }
 
   const addItem = () => {
     setItems([...items, {
       id: Date.now().toString(),
       hsCode: '',
-      qty: companyType === 'insumos' ? 1 : 0,
+      qty: companyType === 'insumos' ? 0 : 0,
       description: '',
       weight: 0,
       unitPrice: 0,
-      total: 0
+      total: 0,
+      packingWeight: 0,
     }]);
   };
 
@@ -113,12 +159,17 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        // For INSUMOS: qty is always 1, price is per KG, total = weight * unitPrice
+        // For INSUMOS: qty represents KG; mirror weight to qty and total = qty * price per KG
         if (companyType === 'insumos') {
-          updated.qty = 1;
-          if (field === 'weight' || field === 'unitPrice') {
-            updated.total = updated.weight * updated.unitPrice;
+          if (field === 'weight' || field === 'qty') {
+            const kg = Number(value) || 0;
+            updated.qty = kg;
+            updated.weight = kg;
           }
+          if (field === 'unitPrice') {
+            updated.unitPrice = Number(value) || 0;
+          }
+          updated.total = (updated.qty || 0) * (updated.unitPrice || 0);
         } else {
           // For EQUIPAMENTOS: normal logic
           if (field === 'qty' || field === 'unitPrice') {
@@ -131,19 +182,117 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     }));
   };
 
+  const getTotalPackingWeight = () => {
+    if (!includePackingWeight) return 0;
+    if (manualPackingWeight > 0) return manualPackingWeight;
+    return items.reduce((sum, item) => sum + (item.packingWeight || 0) * (item.qty || 0), 0);
+  };
+
+  // Normalize INSUMOS items coming from Proforma so weight field shows the KG entered there
+  useEffect(() => {
+    if (companyType !== 'insumos') return;
+    if (!invoice?.items?.length) return;
+    setItems(invoice.items.map((item) => {
+      const kg = item.qty || item.weight || 0;
+      return {
+        ...item,
+        qty: kg, // qty represents KG for insumos
+        weight: kg,
+        total: kg * (item.unitPrice || 0),
+      };
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyType, invoice?.id]);
+
+  useEffect(() => {
+    const loadImporters = async () => {
+      try {
+        const data = await getImporters();
+        setImporters(data);
+      } catch (err) {
+        console.error('Error loading importers', err);
+      }
+    };
+    loadImporters();
+  }, []);
+
+  const handleSelectImporter = (importerId: string) => {
+    setSelectedImporterId(importerId);
+    const imp = importers.find((i) => i.id === importerId);
+    if (imp) {
+      setValue('importerCompanyName', imp.company_name);
+      setValue('importerTaxId', imp.tax_id);
+      setValue('importerAddress', imp.address);
+      setValue('importerZipCode', imp.zip_code);
+      setValue('importerPhone', imp.phone);
+      setValue('importerEmail', imp.email || '');
+      setValue('importerCountry', imp.country);
+    }
+  };
+
+  const getErrorMessage = (error: unknown) => {
+    if (error instanceof Error && error.message) return error.message;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string') {
+      return (error as any).message;
+    }
+    if (error && typeof error === 'object' && 'error_description' in error && typeof (error as any).error_description === 'string') {
+      return (error as any).error_description;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'Unknown error';
+    }
+  };
+
   const onSubmit = async (data: CommercialFormData) => {
     try {
-      const invoiceNumber = data.invoiceNumber || 
-        (invoice?.documentType === 'proforma' 
-          ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
-          : `CI-${await getBaseNumber()}`);
+      const existingBase = invoice?.invoiceNumber?.match(/\d{6}$/)?.[0];
+      let baseNumber = existingBase;
+      const isNewInvoice = !invoice || invoice.documentType !== 'commercial';
+
+      if (!baseNumber && orderId) {
+        const orderFromDb = await getOrderById(orderId);
+        baseNumber = orderFromDb?.base_number || baseNumber;
+      }
+
+      // If coming from a proforma, reuse its base; otherwise create a fresh one
+      if (!baseNumber && invoice?.documentType === 'proforma') {
+        baseNumber = invoice.invoiceNumber.match(/\d{6}$/)?.[0];
+      }
+
+      if (!baseNumber && isNewInvoice) {
+        baseNumber = await getBaseNumber();
+      }
+
+      if (!baseNumber) {
+        baseNumber = await getBaseNumber();
+      }
+
+      const invoiceNumber = `CI-${baseNumber}`;
+      const totalPackingWeight = getTotalPackingWeight();
+
+      let targetOrderId = orderId || invoice?.orderId;
+      let existingOrder = await getOrderByBaseNumber(baseNumber);
+      if (existingOrder) {
+        targetOrderId = existingOrder.id;
+      } else if (!targetOrderId) {
+        const newOrder = await createOrder(baseNumber);
+        targetOrderId = newOrder.id;
+      }
+
+      if (!targetOrderId) {
+        throw new Error('Could not determine order ID');
+      }
 
       const invoiceData: Invoice = {
         id: crypto.randomUUID(),
         invoiceNumber,
         documentType: 'commercial',
+        orderId: targetOrderId,
         issueDate: new Date().toISOString().split('T')[0],
-        placeOfIssue: 'Brusque-SC-Brasil',
+        placeOfIssue: 'Brusque-SC-Brazil',
         currency: 'US$',
         items,
         createdAt: new Date().toISOString(),
@@ -158,42 +307,27 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         importerCountry: data.importerCountry,
         incoterm: data.incoterm,
         modeOfTransport: data.modeOfTransport,
-        availability: data.availability || '',
+        availability: '',
         paymentMethod: data.paymentMethod,
+        freightCost: showFreightCost ? data.freightCost : undefined,
+        insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
-        clientPosition: data.clientPosition,
-        clientPositionTitle: data.clientPositionTitle,
+        clientPosition: data.clientPosition || 'Caroline Franzen',
+        clientPositionTitle: data.clientPositionTitle || 'Verdetec Administrative Manager',
         notes: data.notes,
         sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
-        packingWeight,
+        packingWeight: totalPackingWeight,
         includePackingWeight,
         showTotalWeight,
+        totalPackingWeight,
+        manualPackingWeight: manualPackingWeight || undefined,
         // Port/Place fields
         portOfLoading: data.portOfLoading,
         portOfDischarge: data.portOfDischarge,
         placeOfDelivery: data.placeOfDelivery,
         placeOfDestination: data.placeOfDestination,
       };
-
-      let targetOrderId = orderId;
-      
-      if (!targetOrderId) {
-        const baseNumber = invoiceNumber.match(/\d{6}$/)?.[0];
-        if (baseNumber) {
-          const existingOrder = await getOrderByBaseNumber(baseNumber);
-          if (existingOrder) {
-            targetOrderId = existingOrder.id;
-          } else {
-            const newOrder = await createOrder(baseNumber);
-            targetOrderId = newOrder.id;
-          }
-        }
-      }
-
-      if (!targetOrderId) {
-        throw new Error('Could not determine order ID');
-      }
 
       await saveInvoice(invoiceData, targetOrderId);
       
@@ -207,9 +341,10 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       }
     } catch (error) {
       console.error('Error saving invoice:', error);
+      const message = getErrorMessage(error);
       toast({
         title: 'Error',
-        description: 'Failed to save invoice. Please try again.',
+        description: `Failed to save invoice: ${message}`,
         variant: 'destructive',
       });
     }
@@ -217,17 +352,31 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
 
   const handlePrint = () => {
     const data = watch();
-    const invoiceNumber = data.invoiceNumber || 
-      (invoice?.documentType === 'proforma' 
-        ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
-        : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
+    let baseNumber = invoice?.invoiceNumber?.match(/\d{6}$/)?.[0];
+    if (!baseNumber && orderId) {
+      const orderBase = invoice?.orderId === orderId ? invoice.invoiceNumber.match(/\d{6}$/)?.[0] : undefined;
+      baseNumber = orderBase || baseNumber;
+    }
+    if (!baseNumber && data.invoiceNumber) {
+      baseNumber = data.invoiceNumber.match(/\d{6}$/)?.[0];
+    }
+    if (!baseNumber && invoice?.documentType === 'proforma') {
+      baseNumber = invoice.invoiceNumber.match(/\d{6}$/)?.[0];
+    }
+    if (!baseNumber) {
+      baseNumber = new Date().getFullYear().toString().slice(-2) + '0001';
+    }
+    const invoiceNumber = `CI-${baseNumber}`;
+    const repName = normalizeRepName(data.clientPosition);
+    const repTitle = normalizeRepTitle(data.clientPositionTitle);
 
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
       invoiceNumber,
       documentType: 'commercial',
+      orderId: orderId || invoice?.orderId,
       issueDate: new Date().toLocaleDateString('en-US'),
-      placeOfIssue: 'Brusque-SC-Brasil',
+      placeOfIssue: 'Brusque-SC-Brazil',
       currency: 'US$',
       items,
       createdAt: invoice?.createdAt || new Date().toISOString(),
@@ -244,15 +393,23 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       modeOfTransport: data.modeOfTransport,
       availability: '',
       paymentMethod: data.paymentMethod,
+      freightCost: showFreightCost ? data.freightCost : undefined,
+      insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
-      clientPosition: data.clientPosition,
-      clientPositionTitle: data.clientPositionTitle,
+      clientPosition: repName,
+      clientPositionTitle: repTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
-      packingWeight,
+      packingWeight: getTotalPackingWeight(),
       includePackingWeight,
       showTotalWeight,
+      totalPackingWeight: getTotalPackingWeight(),
+      manualPackingWeight: manualPackingWeight || undefined,
+      portOfLoading: data.portOfLoading,
+      portOfDischarge: data.portOfDischarge,
+      placeOfDelivery: data.placeOfDelivery,
+      placeOfDestination: data.placeOfDestination,
     };
     setShowPreview(true);
   };
@@ -263,13 +420,16 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       (invoice?.documentType === 'proforma' 
         ? generateCommercialInvoiceNumber(invoice.invoiceNumber)
         : `CI-${new Date().getFullYear().toString().slice(-2)}0001`);
+    const repName = normalizeRepName(data.clientPosition);
+    const repTitle = normalizeRepTitle(data.clientPositionTitle);
 
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
       invoiceNumber,
       documentType: 'commercial',
+      orderId: orderId || invoice?.orderId,
       issueDate: new Date().toLocaleDateString('en-US'),
-      placeOfIssue: 'Brusque-SC-Brasil',
+      placeOfIssue: 'Brusque-SC-Brazil',
       currency: 'US$',
       items,
       createdAt: invoice?.createdAt || new Date().toISOString(),
@@ -284,25 +444,45 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: '',
+      availability: data.availability || '',
       paymentMethod: data.paymentMethod,
+      freightCost: showFreightCost ? data.freightCost : undefined,
+      insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
       clientRepresentative: data.clientRepresentative,
       clientCompanyPosition: data.clientCompanyPosition,
-      clientPosition: data.clientPosition,
-      clientPositionTitle: data.clientPositionTitle,
+      clientPosition: repName,
+      clientPositionTitle: repTitle,
       notes: data.notes,
       sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
-      packingWeight,
+      packingWeight: getTotalPackingWeight(),
       includePackingWeight,
       showTotalWeight,
+      totalPackingWeight: getTotalPackingWeight(),
+      portOfLoading: data.portOfLoading,
+      portOfDischarge: data.portOfDischarge,
+      placeOfDelivery: data.placeOfDelivery,
+      placeOfDestination: data.placeOfDestination,
     };
     
     return <InvoicePrintPreview invoice={invoiceData} onBack={() => setShowPreview(false)} />;
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-  const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
-  const totalWeight = itemsWeight + (includePackingWeight ? packingWeight : 0);
+  const itemsWeight = items.reduce((sum, item) => {
+    if (companyType === 'insumos') {
+      const kg = item.qty || item.weight || 0;
+      return sum + kg;
+    }
+    return sum + (item.weight * item.qty);
+  }, 0);
+  const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
+  const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
+  const totalAmount =
+    ['CIF', 'CIP'].includes(incoterm)
+      ? subtotal + freightCostValue + insuranceCostValue
+      : ['CFR', 'CPT'].includes(incoterm)
+        ? subtotal + freightCostValue
+        : subtotal;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
@@ -336,6 +516,29 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Importer / Buyer Data</h3>
+
+          {importers.length > 0 && (
+            <div className="grid grid-cols-2 gap-4 items-end">
+              <div>
+                <Label>Escolher cliente cadastrado</Label>
+                <select
+                  className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2"
+                  value={selectedImporterId}
+                  onChange={(e) => handleSelectImporter(e.target.value)}
+                >
+                  <option value="">Selecione um cliente...</option>
+                  {importers.map((imp) => (
+                    <option key={imp.id} value={imp.id}>
+                      {imp.company_name} — {imp.tax_id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Ao selecionar, os dados do cliente são preenchidos automaticamente.
+              </p>
+            </div>
+          )}
           
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -415,52 +618,41 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
             </div>
 
             <div>
-              <Label>Payment Method *</Label>
+              <Label>Terms of Payment: *</Label>
               <Input {...register('paymentMethod')} />
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
             </div>
-
-            <div>
-              <Label>Availability</Label>
-              <select {...register('availability')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
-                <option value="">Select availability</option>
-                <option value="Immediate">Immediate</option>
-                <option value="15 days">15 days</option>
-                <option value="30 days">30 days</option>
-                <option value="45 days">45 days</option>
-                <option value="60 days">60 days</option>
-                <option value="75 days">75 days</option>
-                <option value="90 days">90 days</option>
-                <option value="120 days">120 days</option>
-              </select>
-            </div>
           </div>
 
-          {/* Maritime Incoterms - Port fields (CIF/CFR) */}
-          {isMaritimeIncoterm && (
+          {/* Maritime Incoterms - Port fields (FOB/FAS/CIF/CFR) */}
+          {showPortFields && (
             <div className="grid grid-cols-2 gap-4 mt-4 p-4 border rounded-md bg-muted/30">
               <div>
                 <Label>Port of Loading *</Label>
-                <Input {...register('portOfLoading', { required: isMaritimeIncoterm })} placeholder="e.g., Port of Santos" />
+                <Input {...register('portOfLoading', { required: showPortFields })} placeholder="e.g., Port of Santos" />
               </div>
               <div>
                 <Label>Port of Discharge *</Label>
-                <Input {...register('portOfDischarge', { required: isMaritimeIncoterm })} placeholder="e.g., Port of Miami" />
+                <Input {...register('portOfDischarge', { required: showPortFields })} placeholder="e.g., Port of Miami" />
               </div>
             </div>
           )}
 
-          {/* Multimodal Incoterms - Place fields (CIP/CPT) */}
-          {isMultimodalIncoterm && (
-            <div className="grid grid-cols-2 gap-4 mt-4 p-4 border rounded-md bg-muted/30">
-              <div>
-                <Label>Place of Delivery (optional)</Label>
-                <Input {...register('placeOfDelivery')} placeholder="e.g., Warehouse Address" />
-              </div>
-              <div>
-                <Label>Place of Destination (optional)</Label>
-                <Input {...register('placeOfDestination')} placeholder="e.g., Final Destination" />
-              </div>
+          {/* Multimodal Incoterms - Place fields */}
+          {(showPlaceOfDelivery || showPlaceOfDestination) && (
+            <div className={`grid gap-4 mt-4 p-4 border rounded-md bg-muted/30 ${showPlaceOfDelivery && showPlaceOfDestination ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {showPlaceOfDelivery && (
+                <div>
+                  <Label>Place of Delivery (optional)</Label>
+                  <Input {...register('placeOfDelivery')} placeholder="e.g., Warehouse Address" />
+                </div>
+              )}
+              {showPlaceOfDestination && (
+                <div>
+                  <Label>Place of Destination (optional)</Label>
+                  <Input {...register('placeOfDestination')} placeholder="e.g., Final Destination" />
+                </div>
+              )}
             </div>
           )}
 
@@ -540,28 +732,25 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
           <div className="bg-muted p-4 rounded-md">
             <div className="flex flex-col gap-3 mb-2">
               <div className="flex items-center gap-2">
-                <Label htmlFor="packingWeightCI">Packing Weight (KG) - Optional:</Label>
-                <Input 
-                  id="packingWeightCI"
-                  type="number"
-                  step="0.01"
-                  value={packingWeight || ''}
-                  onChange={(e) => setPackingWeight(parseFloat(e.target.value) || 0)}
-                  className="w-32"
+                <Checkbox
+                  id="includePackingWeightCI"
+                  checked={includePackingWeight}
+                  onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
                 />
-              </div>
-              {packingWeight > 0 && (
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="includePackingWeightCI"
-                    checked={includePackingWeight}
-                    onCheckedChange={(checked) => setIncludePackingWeight(checked as boolean)}
+                <Label htmlFor="includePackingWeightCI" className="cursor-pointer">
+                  Add Packing Weight per item (shows in documents)
+                </Label>
+                {includePackingWeight && (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={manualPackingWeight || ''}
+                    onChange={(e) => setManualPackingWeight(parseFloat(e.target.value) || 0)}
+                    placeholder="Total packing weight (KG)"
+                    className="w-40"
                   />
-                  <Label htmlFor="includePackingWeightCI" className="cursor-pointer">
-                    Include Packing Weight in Total Weight calculation
-                  </Label>
-                </div>
-              )}
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="showTotalWeightCI"
@@ -573,14 +762,58 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                 </Label>
               </div>
             </div>
-            <div className="flex justify-between font-semibold">
-              {showTotalWeight && <span>Total Weight: {totalWeight.toFixed(2)} KG</span>}
-              <span className={!showTotalWeight ? 'ml-auto' : ''}>Subtotal: ${subtotal.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-end font-bold text-lg mt-2">
-              Total: ${subtotal.toFixed(2)}
+            <div className="flex flex-col gap-1 font-semibold">
+              {includePackingWeight && (
+                <div className="flex justify-end">
+                  <span>Total Packing Weight: {totalPackingWeight.toFixed(2)} KG</span>
+                </div>
+              )}
+              {showTotalWeight && (
+                <div className="flex justify-end">
+                  <span>Total Weight: {totalWeight.toFixed(2)} KG</span>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <span>Subtotal (Merchandise): ${subtotal.toFixed(2)}</span>
+              </div>
+              {(freightCostValue > 0 || insuranceCostValue > 0) && (
+                <div className="flex justify-end gap-6 text-sm mt-1">
+                  {freightCostValue > 0 && <span>+ Freight: ${freightCostValue.toFixed(2)}</span>}
+                  {insuranceCostValue > 0 && <span>+ Insurance: ${insuranceCostValue.toFixed(2)}</span>}
+                </div>
+              )}
+              <div className="flex justify-end font-bold text-lg">
+                Total: ${totalAmount.toFixed(2)}
+              </div>
             </div>
           </div>
+
+          {(showFreightCost || showInsuranceCost) && (
+            <div className="grid grid-cols-2 gap-4">
+              {showFreightCost && (
+                <div>
+                  <Label>Freight Cost *</Label>
+                  <Input 
+                    type="number"
+                    step="0.01"
+                    {...register('freightCost', { valueAsNumber: true, required: showFreightCost })}
+                  />
+                  {errors.freightCost && <span className="text-sm text-destructive">Freight cost is required for this Incoterm.</span>}
+                </div>
+              )}
+              {showInsuranceCost && (
+                <div>
+                  <Label>Insurance Cost *</Label>
+                  <Input 
+                    type="number"
+                    step="0.01"
+                    {...register('insuranceCost', { valueAsNumber: true, required: showInsuranceCost })}
+                  />
+                  {errors.insuranceCost && <span className="text-sm text-destructive">Insurance cost is required for this Incoterm.</span>}
+                </div>
+              )}
+            </div>
+          )}
 
           <h3 className="font-semibold text-lg mt-6">Notes (Optional)</h3>
           
@@ -593,31 +826,25 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
             />
           </div>
 
-          <h3 className="font-semibold text-lg mt-6">Client Approval</h3>
+          <h3 className="font-semibold text-lg mt-6">Verdetec Representative</h3>
           
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Client Name *</Label>
-              <Input {...register('clientRepresentative')} />
-              {errors.clientRepresentative && <span className="text-sm text-destructive">{errors.clientRepresentative.message}</span>}
+              <Label>Name</Label>
+              <Input 
+                {...register('clientPosition')} 
+                placeholder="Caroline Franzen"
+              />
             </div>
-
             <div>
-              <Label>Verdetec Representative</Label>
-              <Input {...register('clientPosition')} />
-            </div>
-
-            <div>
-              <Label>Client Position and Company *</Label>
-              <Input {...register('clientCompanyPosition')} />
-              {errors.clientCompanyPosition && <span className="text-sm text-destructive">{errors.clientCompanyPosition.message}</span>}
-            </div>
-
-            <div>
-              <Label>Verdetec Representative Position</Label>
-              <Input {...register('clientPositionTitle')} />
+              <Label>Position</Label>
+              <Input 
+                {...register('clientPositionTitle')} 
+                placeholder="Verdetec Administrative Manager"
+              />
             </div>
           </div>
+
         </div>
 
         <div className="flex gap-4 mt-6">
