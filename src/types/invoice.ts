@@ -97,7 +97,7 @@ export const COMPANY_DATA = {
     bankDetails: {
       bank: 'Banco do Brasil – City of Brusque/SC',
       swift: 'BRASBRRJCTA',
-      iban: 'BR9000000000083150000002674C1'
+      iban: 'BR8600000000083150000003239C1'
     },
     branches: {
       insumos_rio_negrinho: {
