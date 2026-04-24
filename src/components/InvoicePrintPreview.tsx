@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Invoice, getCompanyData } from '@/types/invoice';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Invoice, InvoiceItem, getCompanyData } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import verdetecLogo from '@/assets/verdetec-logo.png';
@@ -14,20 +14,25 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
   const ITEMS_PER_PAGE = 10;
   const mmToPx = (mm: number) => (mm * 96) / 25.4;
   const A4_HEIGHT_PX = mmToPx(297);
-
-  const itemChunks = [];
-  for (let i = 0; i < invoice.items.length; i += ITEMS_PER_PAGE) {
-    itemChunks.push(invoice.items.slice(i, i + ITEMS_PER_PAGE));
-  }
-  const totalPages = itemChunks.length || 1;
-
   const [fitToPage, setFitToPage] = useState(false);
+
+  const paginatedItemChunks = [];
+  for (let i = 0; i < invoice.items.length; i += ITEMS_PER_PAGE) {
+    paginatedItemChunks.push(invoice.items.slice(i, i + ITEMS_PER_PAGE));
+  }
+  if (paginatedItemChunks.length === 0) {
+    paginatedItemChunks.push([]);
+  }
+
+  const itemChunks = fitToPage ? [invoice.items] : paginatedItemChunks;
+  const totalPages = itemChunks.length;
+
   const [pageHeights, setPageHeights] = useState<number[]>([]);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const innerRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  useEffect(() => {
-    const heights = innerRefs.current.map((el) => el?.scrollHeight || 0);
+  useLayoutEffect(() => {
+    const heights = innerRefs.current.slice(0, totalPages).map((el) => el?.scrollHeight || 0);
     setPageHeights(heights);
   }, [invoice, totalPages, fitToPage]);
 
@@ -50,18 +55,18 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
   const showPlaceOfDelivery = ['CPT', 'CIP', 'FCA'].includes(incotermCode);
   const showPlaceOfDestination = ['CPT', 'CIP', 'DAP', 'DPU', 'DDP'].includes(incotermCode);
   const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
-  const computeItemTotalWeight = (item: any) => {
-    const normalize = (val: any) => {
-      if (typeof val === 'string') {
-        const cleaned = val.replace(',', '.'); // handle decimal with comma
-        const parsed = parseFloat(cleaned);
-        return Number.isFinite(parsed) ? parsed : 0;
-      }
-      const num = Number(val);
-      return Number.isFinite(num) ? num : 0;
-    };
-    const qtyNum = normalize(item.qty);
-    const weightNum = normalize(item.weight);
+  const normalizeNumber = (val: unknown) => {
+    if (typeof val === 'string') {
+      const cleaned = val.replace(',', '.'); // handle decimal with comma
+      const parsed = parseFloat(cleaned);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    const num = Number(val);
+    return Number.isFinite(num) ? num : 0;
+  };
+  const computeItemTotalWeight = (item: InvoiceItem) => {
+    const qtyNum = normalizeNumber(item.qty);
+    const weightNum = normalizeNumber(item.weight);
     if (invoice.companyType === 'insumos') {
       // For INSUMOS: qty is KG; fall back to weight if qty is missing
       return qtyNum || weightNum;
@@ -70,17 +75,8 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
   };
   const itemsWeight = invoice.items.reduce((sum, item) => sum + computeItemTotalWeight(item), 0);
   const itemPackingWeight = invoice.items.reduce((sum, item) => {
-    const normalize = (val: any) => {
-      if (typeof val === 'string') {
-        const cleaned = val.replace(',', '.');
-        const parsed = parseFloat(cleaned);
-        return Number.isFinite(parsed) ? parsed : 0;
-      }
-      const num = Number(val);
-      return Number.isFinite(num) ? num : 0;
-    };
-    const pack = normalize(item.packingWeight);
-    const qty = normalize(item.qty);
+    const pack = normalizeNumber(item.packingWeight);
+    const qty = normalizeNumber(item.qty);
     return sum + (pack * qty);
   }, 0);
   const totalPackingWeight = invoice.includePackingWeight
