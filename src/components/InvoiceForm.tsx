@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol } from '@/types/invoice';
 import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber, getOrderById, getImporters, getProducts, ProductRecord } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
@@ -45,6 +45,7 @@ const invoiceSchema = z.object({
   paymentMethod: z.string().min(1, 'Required field'),
   clientRepresentative: z.string().min(1, 'Required field'),
   clientCompanyPosition: z.string().min(1, 'Required field'),
+  currency: z.string().default('US$'),
   clientPosition: z.string().default('Rafael Hermes'),
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
@@ -70,7 +71,6 @@ interface InvoiceFormProps {
 export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);
-  const currencyLabel = 'US$';
   const initialItems = invoice?.items || [];
   const initialIncludePacking = invoice?.includePackingWeight ?? (initialItems.some(i => (i.packingWeight || 0) > 0) || (invoice?.packingWeight || 0) > 0);
   const [items, setItems] = useState<InvoiceItem[]>(initialItems);
@@ -95,6 +95,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       insuranceCost: undefined,
       availability: '15 days',
       paymentMethod: '100% PRIOR TO SHIPPING.',
+      currency: 'US$',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
       notes: '',
@@ -105,6 +106,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const exporterAddressKey = watch('exporterAddressKey') as InsumosAddressKey | undefined;
   const resolvedCompany = getCompanyData(companyType, exporterAddressKey);
   const incoterm = watch('incoterm');
+  const currencyLabel = getCurrencySymbol(watch('currency') || 'US$');
   useEffect(() => {
     if (companyType === 'insumos' && !exporterAddressKey) {
       setValue('exporterAddressKey', 'insumos_rio_negrinho');
@@ -360,7 +362,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         orderId: targetOrderId,
         issueDate: new Date().toISOString().split('T')[0],
         placeOfIssue: 'Brusque-SC-Brazil',
-        currency: 'US$',
+        currency: currencyLabel,
         items,
         createdAt: invoice?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -431,7 +433,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         orderId: orderId || invoice?.orderId,
         issueDate: new Date().toLocaleDateString('en-US'),
         placeOfIssue: 'Brusque-SC-Brazil',
-        currency: 'US$',
+        currency: currencyLabel,
         items,
         createdAt: invoice?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -483,7 +485,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       orderId: orderId || invoice?.orderId,
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brazil',
-    currency: 'US$',
+    currency: currencyLabel,
     items,
     createdAt: invoice?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -680,6 +682,15 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
+            </div>
+
+            <div>
+              <Label>Currency *</Label>
+              <select {...register('currency')} className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
+                {CURRENCY_OPTIONS.map((opt) => (
+                  <option key={opt.code} value={opt.symbol}>{opt.label}</option>
+                ))}
+              </select>
             </div>
 
             <div>

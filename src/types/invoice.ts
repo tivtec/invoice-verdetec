@@ -2,6 +2,28 @@ export type CompanyType = 'equipamentos' | 'insumos';
 export type InsumosAddressKey = 'insumos_rio_negrinho' | 'insumos_itajai';
 export type DocumentType = 'proforma' | 'commercial' | 'packing';
 
+export type CurrencyCode = 'USD' | 'BRL' | 'EUR';
+
+export interface CurrencyOption {
+  code: CurrencyCode;
+  label: string;
+  symbol: string;
+}
+
+export const CURRENCY_OPTIONS: CurrencyOption[] = [
+  { code: 'USD', label: 'US$ – Dólar Americano (USD)', symbol: 'US$' },
+  { code: 'BRL', label: 'R$ – Real Brasileiro (BRL)', symbol: 'R$' },
+  { code: 'EUR', label: '€ – Euro (EUR)', symbol: '€' },
+];
+
+export const getCurrencySymbol = (currency: string): string => {
+  const normalized = currency.toUpperCase();
+  const option = CURRENCY_OPTIONS.find(
+    (o) => o.code === normalized || o.symbol.toUpperCase() === normalized
+  );
+  return option?.symbol || currency;
+};
+
 export interface InvoiceItem {
   id: string;
   hsCode: string;
