@@ -29,11 +29,12 @@ const DEFAULT_ROW_HEIGHT_PX = 28;
 const mmToPx = (mm: number) => (mm * 96) / 25.4;
 
 // Margem de segurança: a medição da pré-visualização (fora da tela) pode divergir
-// levemente da renderização real de impressão (fontes, arredondamento de sub-pixel).
-// Reservamos essa folga extra para que o conteúdo nunca fique "no limite" exato
-// da altura da página, evitando que o rótulo de paginação (ou uma linha) seja
-// empurrado para uma página extra.
-const PAGE_SAFETY_MARGIN_PX = mmToPx(6);
+// da renderização real de impressão (fontes, arredondamento de sub-pixel, diferenças
+// do motor de exportação para PDF do navegador). Um teste real mostrou que uma folga
+// pequena (6mm) não era suficiente para evitar o rótulo de paginação sendo empurrado
+// para uma página extra — por isso a margem é generosa (equivalente a mais de uma
+// linha de item), priorizando confiabilidade sobre aproveitar cada milímetro da página.
+const PAGE_SAFETY_MARGIN_PX = mmToPx(20);
 
 const normalizeNumber = (value: unknown) => {
   if (typeof value === 'string') {
