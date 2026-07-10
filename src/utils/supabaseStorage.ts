@@ -143,7 +143,7 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     importerZipCode: dbInvoice.importers?.zip_code || '',
     importerPhone: dbInvoice.importers?.phone || '',
     importerEmail: dbInvoice.importers?.email || '',
-    importerCountry: dbInvoice.importers?.country || '',
+    importerCountry: dbInvoice.country_of_destination || dbInvoice.importers?.country || '',
     incoterm: dbInvoice.incoterm,
     modeOfTransport: dbInvoice.mode_of_transport,
     availability: dbInvoice.availability || '',
@@ -171,7 +171,16 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     zip_code: invoice.importerZipCode,
     phone: invoice.importerPhone,
     email: invoice.importerEmail || null,
-    country: invoice.importerCountry,
+    country: invoice.importerCountry, // usado apenas na criação do importer
+  };
+  const importerUpdateData = {
+    company_name: invoice.importerCompanyName,
+    tax_id: invoice.importerTaxId,
+    address: invoice.importerAddress,
+    zip_code: invoice.importerZipCode,
+    phone: invoice.importerPhone,
+    email: invoice.importerEmail || null,
+    // country removido de propósito: não sobrescreve mais o cadastro do cliente
   };
 
   const { data: existingImporter } = await supabase
@@ -186,7 +195,7 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
   if (existingImporter) {
     const { data, error } = await supabase
       .from('importers')
-      .update(importerData)
+      .update(importerUpdateData)
       .eq('id', existingImporter.id)
       .select()
       .single();
@@ -222,6 +231,7 @@ export const saveInvoice = async (invoice: Invoice, orderId: string): Promise<vo
     port_of_discharge: invoice.portOfDischarge || null,
     place_of_delivery: invoice.placeOfDelivery || null,
     place_of_destination: invoice.placeOfDestination || null,
+    country_of_destination: invoice.importerCountry || null,
     freight_cost: invoice.freightCost ?? null,
     insurance_cost: invoice.insuranceCost ?? null,
     payment_method: invoice.paymentMethod,
