@@ -28,6 +28,13 @@ const DEFAULT_ROW_HEIGHT_PX = 28;
 
 const mmToPx = (mm: number) => (mm * 96) / 25.4;
 
+// Margem de segurança: a medição da pré-visualização (fora da tela) pode divergir
+// levemente da renderização real de impressão (fontes, arredondamento de sub-pixel).
+// Reservamos essa folga extra para que o conteúdo nunca fique "no limite" exato
+// da altura da página, evitando que o rótulo de paginação (ou uma linha) seja
+// empurrado para uma página extra.
+const PAGE_SAFETY_MARGIN_PX = mmToPx(6);
+
 const normalizeNumber = (value: unknown) => {
   if (typeof value === 'string') {
     const parsed = Number(value.replace(',', '.'));
@@ -660,7 +667,7 @@ const SignatureBlock = ({ invoice, repName, repTitle }: SignatureBlockProps) => 
 };
 
 const PageLabel = ({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) => (
-  <div className="mt-auto pt-6 text-right text-xs text-muted-foreground">
+  <div className="avoid-break mt-auto pt-6 text-right text-xs text-muted-foreground">
     Page {pageNumber} of {totalPages}
   </div>
 );
@@ -760,14 +767,16 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
     const nextPages = buildPreviewPages({
       items: invoice.items,
       rowHeights,
-      itemPageCapacity: contentHeightPx - headerHeight - tableHeaderHeight - pageLabelHeight,
+      itemPageCapacity:
+        contentHeightPx - headerHeight - tableHeaderHeight - pageLabelHeight - PAGE_SAFETY_MARGIN_PX,
       itemPageCapacityWithTail:
         contentHeightPx -
         headerHeight -
         tableHeaderHeight -
         pageLabelHeight -
-        tailBlocks.reduce((sum, block) => sum + block.height, 0),
-      tailOnlyPageCapacity: contentHeightPx - headerHeight - pageLabelHeight,
+        tailBlocks.reduce((sum, block) => sum + block.height, 0) -
+        PAGE_SAFETY_MARGIN_PX,
+      tailOnlyPageCapacity: contentHeightPx - headerHeight - pageLabelHeight - PAGE_SAFETY_MARGIN_PX,
       tailBlocks,
     });
 
