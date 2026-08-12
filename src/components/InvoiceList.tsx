@@ -6,6 +6,7 @@ import { Invoice } from '@/types/invoice';
 import { getInvoices, deleteInvoice } from '@/utils/invoiceStorage';
 import { useToast } from '@/hooks/use-toast';
 import { formatInvoiceAmount } from '@/utils/numberFormat';
+import { calculateInvoiceTotals } from '@/utils/invoiceTotals';
 
 interface InvoiceListProps {
   onEdit: (invoice: Invoice) => void;
@@ -49,37 +50,49 @@ export const InvoiceList = ({ onEdit, onView, refresh }: InvoiceListProps) => {
 
   return (
     <div className="space-y-4">
-      {invoices.map((invoice) => (
-        <Card key={invoice.id} className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-lg">{invoice.invoiceNumber}</h3>
-              <p className="text-sm text-muted-foreground">
-                {invoice.documentType === 'proforma' ? 'Proforma Invoice' : 
-                 invoice.documentType === 'commercial' ? 'Commercial Invoice' : 
-                 'Packing List'} • {invoice.importerCompanyName} • {invoice.issueDate}
-              </p>
-              <p className="text-sm">
-                Total: {invoice.currency || 'US$'} {formatInvoiceAmount(
-                  invoice.items.reduce((sum, item) => sum + item.total, 0),
-                  invoice.currency || 'US$'
-                )}
-              </p>
+      {invoices.map((invoice) => {
+        const subtotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
+        const { totalAmount } = calculateInvoiceTotals({
+          subtotal,
+          freightCost: invoice.freightCost,
+          insuranceCost: invoice.insuranceCost,
+          importDutiesAndTaxes: invoice.importDutiesAndTaxes,
+          applyDiscount: invoice.applyDiscount,
+          discountAmount: invoice.discountAmount,
+        });
+
+        return (
+          <Card key={invoice.id} className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-lg">{invoice.invoiceNumber}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {invoice.documentType === 'proforma' ? 'Proforma Invoice' :
+                   invoice.documentType === 'commercial' ? 'Commercial Invoice' :
+                   'Packing List'} • {invoice.importerCompanyName} • {invoice.issueDate}
+                </p>
+                <p className="text-sm">
+                  Total: {invoice.currency || 'US$'} {formatInvoiceAmount(
+                    totalAmount,
+                    invoice.currency || 'US$'
+                  )}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="icon" onClick={() => onView(invoice)}>
+                  <Eye className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => onEdit(invoice)}>
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button variant="destructive" size="icon" onClick={() => handleDelete(invoice.id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="icon" onClick={() => onView(invoice)}>
-                <Eye className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => onEdit(invoice)}>
-                <Edit className="h-4 w-4" />
-              </Button>
-              <Button variant="destructive" size="icon" onClick={() => handleDelete(invoice.id)}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </Card>
-      ))}
+          </Card>
+        );
+      })}
     </div>
   );
 };

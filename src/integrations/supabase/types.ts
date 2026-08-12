@@ -62,9 +62,49 @@ export type Database = {
           },
         ]
       }
+      clients: {
+        Row: {
+          address_city_state: string | null
+          archived: boolean | null
+          company_name: string
+          country_of_destination: string | null
+          created_at: string
+          email: string | null
+          id: string
+          phone: string | null
+          tax_identification_number: string | null
+          zip_code: string | null
+        }
+        Insert: {
+          address_city_state?: string | null
+          archived?: boolean | null
+          company_name: string
+          country_of_destination?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          phone?: string | null
+          tax_identification_number?: string | null
+          zip_code?: string | null
+        }
+        Update: {
+          address_city_state?: string | null
+          archived?: boolean | null
+          company_name?: string
+          country_of_destination?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          phone?: string | null
+          tax_identification_number?: string | null
+          zip_code?: string | null
+        }
+        Relationships: []
+      }
       importers: {
         Row: {
           address: string
+          archived: boolean | null
           company_name: string
           country: string
           created_at: string
@@ -77,6 +117,7 @@ export type Database = {
         }
         Insert: {
           address: string
+          archived?: boolean | null
           company_name: string
           country: string
           created_at?: string
@@ -89,6 +130,7 @@ export type Database = {
         }
         Update: {
           address?: string
+          archived?: boolean | null
           company_name?: string
           country?: string
           created_at?: string
@@ -150,19 +192,26 @@ export type Database = {
       }
       invoices: {
         Row: {
+          apply_discount: boolean | null
           availability: string | null
           client_company_position: string
           client_position: string
           client_position_title: string
           client_representative: string
           company_type: Database["public"]["Enums"]["company_type"]
+          country_of_destination: string | null
           created_at: string
           currency: string
+          discount_amount: number | null
           document_type: Database["public"]["Enums"]["document_type"]
+          exporter_address_key: string | null
+          freight_cost: number | null
           id: string
           importer_id: string
           include_packing_weight: boolean | null
+          import_duties_taxes: number | null
           incoterm: string
+          insurance_cost: number | null
           invoice_number: string
           issue_date: string
           mode_of_transport: string
@@ -170,25 +219,36 @@ export type Database = {
           order_id: string | null
           packing_weight: number | null
           payment_method: string
+          place_of_delivery: string | null
+          place_of_destination: string | null
           place_of_issue: string
+          port_of_discharge: string | null
+          port_of_loading: string | null
           show_total_weight: boolean | null
           source_invoice_id: string | null
           updated_at: string
         }
         Insert: {
+          apply_discount?: boolean | null
           availability?: string | null
           client_company_position: string
           client_position: string
           client_position_title: string
           client_representative: string
           company_type: Database["public"]["Enums"]["company_type"]
+          country_of_destination?: string | null
           created_at?: string
           currency: string
+          discount_amount?: number | null
           document_type: Database["public"]["Enums"]["document_type"]
+          exporter_address_key?: string | null
+          freight_cost?: number | null
           id?: string
           importer_id: string
           include_packing_weight?: boolean | null
+          import_duties_taxes?: number | null
           incoterm: string
+          insurance_cost?: number | null
           invoice_number: string
           issue_date: string
           mode_of_transport: string
@@ -196,25 +256,36 @@ export type Database = {
           order_id?: string | null
           packing_weight?: number | null
           payment_method: string
+          place_of_delivery?: string | null
+          place_of_destination?: string | null
           place_of_issue: string
+          port_of_discharge?: string | null
+          port_of_loading?: string | null
           show_total_weight?: boolean | null
           source_invoice_id?: string | null
           updated_at?: string
         }
         Update: {
+          apply_discount?: boolean | null
           availability?: string | null
           client_company_position?: string
           client_position?: string
           client_position_title?: string
           client_representative?: string
           company_type?: Database["public"]["Enums"]["company_type"]
+          country_of_destination?: string | null
           created_at?: string
           currency?: string
+          discount_amount?: number | null
           document_type?: Database["public"]["Enums"]["document_type"]
+          exporter_address_key?: string | null
+          freight_cost?: number | null
           id?: string
           importer_id?: string
           include_packing_weight?: boolean | null
+          import_duties_taxes?: number | null
           incoterm?: string
+          insurance_cost?: number | null
           invoice_number?: string
           issue_date?: string
           mode_of_transport?: string
@@ -222,7 +293,11 @@ export type Database = {
           order_id?: string | null
           packing_weight?: number | null
           payment_method?: string
+          place_of_delivery?: string | null
+          place_of_destination?: string | null
           place_of_issue?: string
+          port_of_discharge?: string | null
+          port_of_loading?: string | null
           show_total_weight?: boolean | null
           source_invoice_id?: string | null
           updated_at?: string
@@ -253,25 +328,58 @@ export type Database = {
       }
       orders: {
         Row: {
+          archived: boolean | null
           base_number: string
           created_at: string
           id: string
+          order_note: string | null
           order_number: string
           updated_at: string
         }
         Insert: {
+          archived?: boolean | null
           base_number: string
           created_at?: string
           id?: string
+          order_note?: string | null
           order_number: string
           updated_at?: string
         }
         Update: {
+          archived?: boolean | null
           base_number?: string
           created_at?: string
           id?: string
+          order_note?: string | null
           order_number?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      products: {
+        Row: {
+          archived: boolean | null
+          created_at: string
+          description: string
+          hs_code: string
+          id: string
+          weight_kg: number | null
+        }
+        Insert: {
+          archived?: boolean | null
+          created_at?: string
+          description: string
+          hs_code: string
+          id?: string
+          weight_kg?: number | null
+        }
+        Update: {
+          archived?: boolean | null
+          created_at?: string
+          description?: string
+          hs_code?: string
+          id?: string
+          weight_kg?: number | null
         }
         Relationships: []
       }

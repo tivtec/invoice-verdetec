@@ -9,11 +9,20 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol, DEFAULT_PAYMENT_TERMS } from '@/types/invoice';
 import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber, getOrderById, getImporters, getProducts, ProductRecord } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 import { formatInvoiceAmount } from '@/utils/numberFormat';
+import { calculateInvoiceTotals, sanitizeOptionalInvoiceAmount } from '@/utils/invoiceTotals';
+
+const optionalCostSchema = z.preprocess((value) => {
+  if (typeof value === 'number' && Number.isNaN(value)) return undefined;
+  const sanitized = sanitizeOptionalInvoiceAmount(value);
+  return sanitized === undefined && value !== '' && value !== null && value !== undefined
+    ? value
+    : sanitized;
+}, z.number().min(0, 'Cost cannot be negative.').optional());
 
 const invoiceSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
@@ -31,16 +40,9 @@ const invoiceSchema = z.object({
   portOfDischarge: z.string().optional().or(z.literal('')),
   placeOfDelivery: z.string().optional().or(z.literal('')),
   placeOfDestination: z.string().optional().or(z.literal('')),
-  freightCost: z.preprocess((val) => {
-    if (val === '' || val === null || val === undefined) return undefined;
-    const num = Number(val);
-    return Number.isFinite(num) ? num : undefined;
-  }, z.number().optional()),
-  insuranceCost: z.preprocess((val) => {
-    if (val === '' || val === null || val === undefined) return undefined;
-    const num = Number(val);
-    return Number.isFinite(num) ? num : undefined;
-  }, z.number().optional()),
+  freightCost: optionalCostSchema,
+  insuranceCost: optionalCostSchema,
+  importDutiesAndTaxes: optionalCostSchema,
   availability: z.string().min(1, 'Required field'),
   paymentMethod: z.string().min(1, 'Required field'),
   clientRepresentative: z.string().min(1, 'Required field'),
@@ -93,8 +95,9 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       modeOfTransport: 'To be arranged and paid by the importer',
       freightCost: undefined,
       insuranceCost: undefined,
+      importDutiesAndTaxes: undefined,
       availability: '15 days',
-      paymentMethod: '100% PRIOR TO SHIPPING.',
+      paymentMethod: DEFAULT_PAYMENT_TERMS,
       currency: 'US$',
       clientPosition: 'Rafael Hermes',
       clientPositionTitle: 'VERDETEC SALES MANAGER',
@@ -115,8 +118,6 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       setValue('exporterAddressKey', undefined);
     }
   }, [companyType, exporterAddressKey, setValue]);
-  const showFreightCost = ['CFR', 'CPT', 'CIF', 'CIP'].includes(incoterm);
-  const showInsuranceCost = ['CIF', 'CIP'].includes(incoterm);
   const showPortFields = ['FOB', 'FAS', 'CIF', 'CFR'].includes(incoterm);
   const showPlaceOfDelivery =
     incoterm === 'CPT' ||
@@ -128,17 +129,21 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     incoterm === 'DAP' ||
     incoterm === 'DPU' ||
     incoterm === 'DDP';
-  const sanitizeNumber = (val: any) => {
-    if (typeof val === 'string') {
-      const parsed = parseFloat(val.replace(',', '.'));
-      return Number.isFinite(parsed) ? parsed : undefined;
-    }
-    const num = Number(val);
-    return Number.isFinite(num) ? num : undefined;
-  };
-  const freightCostValue = showFreightCost ? (sanitizeNumber(watch('freightCost')) ?? 0) : 0;
-  const insuranceCostValue = showInsuranceCost ? (sanitizeNumber(watch('insuranceCost')) ?? 0) : 0;
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const {
+    freightCost: freightCostValue,
+    insuranceCost: insuranceCostValue,
+    importDutiesAndTaxes: importDutiesAndTaxesValue,
+    discountValue,
+    totalAmount,
+  } = calculateInvoiceTotals({
+    subtotal,
+    freightCost: watch('freightCost'),
+    insuranceCost: watch('insuranceCost'),
+    importDutiesAndTaxes: watch('importDutiesAndTaxes'),
+    applyDiscount,
+    discountAmount,
+  });
 
   useEffect(() => {
     if (!applyDiscount) return;
@@ -147,13 +152,6 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     }
   }, [applyDiscount, discountAmount, subtotal]);
 
-  // Clear fields when hidden
-  if (!showFreightCost && watch('freightCost')) {
-    setValue('freightCost', undefined);
-  }
-  if (!showInsuranceCost && watch('insuranceCost')) {
-    setValue('insuranceCost', undefined);
-  }
   if (!showPortFields) {
     if (watch('portOfLoading')) setValue('portOfLoading', undefined);
     if (watch('portOfDischarge')) setValue('portOfDischarge', undefined);
@@ -316,8 +314,9 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
 
   const onSubmit = async (data: InvoiceFormData) => {
     try {
-      const freightForSave = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
-      const insuranceForSave = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+      const freightForSave = sanitizeOptionalInvoiceAmount(data.freightCost);
+      const insuranceForSave = sanitizeOptionalInvoiceAmount(data.insuranceCost);
+      const importDutiesAndTaxesForSave = sanitizeOptionalInvoiceAmount(data.importDutiesAndTaxes);
       const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
 
       const existingBase = invoice?.invoiceNumber?.match(/\d{6}$/)?.[0];
@@ -381,6 +380,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         paymentMethod: data.paymentMethod,
         freightCost: freightForSave,
         insuranceCost: insuranceForSave,
+        importDutiesAndTaxes: importDutiesAndTaxesForSave,
         applyDiscount,
         discountAmount: discountValue,
         portOfLoading: data.portOfLoading,
@@ -423,8 +423,9 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const handlePrint = () => {
     const data = watch();
     const totalPackingWeight = getTotalPackingWeight();
-    const freightForPreview = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
-    const insuranceForPreview = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+    const freightForPreview = sanitizeOptionalInvoiceAmount(data.freightCost);
+    const insuranceForPreview = sanitizeOptionalInvoiceAmount(data.insuranceCost);
+    const importDutiesAndTaxesForPreview = sanitizeOptionalInvoiceAmount(data.importDutiesAndTaxes);
     const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
       const invoiceData: Invoice = {
         id: invoice?.id || Date.now().toString(),
@@ -452,6 +453,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         paymentMethod: data.paymentMethod,
         freightCost: freightForPreview,
         insuranceCost: insuranceForPreview,
+        importDutiesAndTaxes: importDutiesAndTaxesForPreview,
         applyDiscount,
         discountAmount: discountValue,
         portOfLoading: data.portOfLoading,
@@ -475,8 +477,9 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   if (showPreview) {
     const data = watch();
     const totalPackingWeight = getTotalPackingWeight();
-    const freightForPreview = showFreightCost ? sanitizeNumber(data.freightCost) : undefined;
-    const insuranceForPreview = showInsuranceCost ? sanitizeNumber(data.insuranceCost) : undefined;
+    const freightForPreview = sanitizeOptionalInvoiceAmount(data.freightCost);
+    const insuranceForPreview = sanitizeOptionalInvoiceAmount(data.insuranceCost);
+    const importDutiesAndTaxesForPreview = sanitizeOptionalInvoiceAmount(data.importDutiesAndTaxes);
     const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
@@ -503,6 +506,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     paymentMethod: data.paymentMethod,
     freightCost: freightForPreview,
     insuranceCost: insuranceForPreview,
+    importDutiesAndTaxes: importDutiesAndTaxesForPreview,
     applyDiscount,
     discountAmount: discountValue,
     portOfLoading: data.portOfLoading,
@@ -527,15 +531,6 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
   const itemsWeight = items.reduce((sum, item) => sum + (item.weight * item.qty), 0);
   const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
   const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
-  const totalAmountBeforeDiscount =
-    ['CIF', 'CIP'].includes(incoterm)
-      ? subtotal + freightCostValue + insuranceCostValue
-      : ['CFR', 'CPT'].includes(incoterm)
-        ? subtotal + freightCostValue
-        : subtotal;
-  const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
-  const totalAmount = Math.max(totalAmountBeforeDiscount - discountValue, 0);
-
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
       <Card className="p-6">
@@ -709,7 +704,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
             </div>
 
             <div className="col-span-3">
-              <Label>Payment Method *</Label>
+              <Label>Payment Terms *</Label>
               <Input {...register('paymentMethod')} />
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
             </div>
@@ -747,31 +742,39 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
             </div>
           )}
 
-          {/* Freight / Insurance */}
-          {(showFreightCost || showInsuranceCost) && (
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              {showFreightCost && (
-                <div>
-                  <Label>Freight Cost (optional)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    {...register('freightCost', { valueAsNumber: true })}
-                  />
-                </div>
-              )}
-              {showInsuranceCost && (
-                <div>
-                  <Label>Insurance Cost (optional)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    {...register('insuranceCost', { valueAsNumber: true })}
-                  />
-                </div>
-              )}
+          {/* Optional costs are available for every Incoterm. */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div>
+              <Label>Freight Cost (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('freightCost', { valueAsNumber: true })}
+              />
+              {errors.freightCost && <span className="text-sm text-destructive">{errors.freightCost.message}</span>}
             </div>
-          )}
+            <div>
+              <Label>Insurance Cost (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('insuranceCost', { valueAsNumber: true })}
+              />
+              {errors.insuranceCost && <span className="text-sm text-destructive">{errors.insuranceCost.message}</span>}
+            </div>
+            <div>
+              <Label>Import Duties &amp; Taxes (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('importDutiesAndTaxes', { valueAsNumber: true })}
+              />
+              {errors.importDutiesAndTaxes && <span className="text-sm text-destructive">{errors.importDutiesAndTaxes.message}</span>}
+            </div>
+          </div>
 
           <h3 className="font-semibold text-lg mt-6">Items</h3>
           
@@ -976,13 +979,16 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
               <div className="flex justify-end">
                 <span>Subtotal: {currencyLabel} {formatInvoiceAmount(subtotal, currencyLabel)}</span>
               </div>
-              {(freightCostValue > 0 || insuranceCostValue > 0) && (
+              {(freightCostValue > 0 || insuranceCostValue > 0 || importDutiesAndTaxesValue > 0) && (
                 <div className="flex justify-end gap-6 text-sm mt-1">
                   {freightCostValue > 0 && (
                     <span>+ Freight: {currencyLabel} {formatInvoiceAmount(freightCostValue, currencyLabel)}</span>
                   )}
                   {insuranceCostValue > 0 && (
                     <span>+ Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCostValue, currencyLabel)}</span>
+                  )}
+                  {importDutiesAndTaxesValue > 0 && (
+                    <span>+ Import Duties &amp; Taxes: {currencyLabel} {formatInvoiceAmount(importDutiesAndTaxesValue, currencyLabel)}</span>
                   )}
                 </div>
               )}

@@ -9,12 +9,21 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, getCurrencySymbol, DEFAULT_PAYMENT_TERMS } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generateCommercialInvoiceNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
 import { formatInvoiceAmount } from '@/utils/numberFormat';
+import { calculateInvoiceTotals, sanitizeOptionalInvoiceAmount } from '@/utils/invoiceTotals';
+
+const optionalCostSchema = z.preprocess((value) => {
+  if (typeof value === 'number' && Number.isNaN(value)) return undefined;
+  const sanitized = sanitizeOptionalInvoiceAmount(value);
+  return sanitized === undefined && value !== '' && value !== null && value !== undefined
+    ? value
+    : sanitized;
+}, z.number().min(0, 'Cost cannot be negative.').optional());
 
 const commercialSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
@@ -41,8 +50,9 @@ const commercialSchema = z.object({
   // Place fields for multimodal incoterms (CIP/CPT)
   placeOfDelivery: z.string().optional(),
   placeOfDestination: z.string().optional(),
-  freightCost: z.coerce.number().optional(),
-  insuranceCost: z.coerce.number().optional(),
+  freightCost: optionalCostSchema,
+  insuranceCost: optionalCostSchema,
+  importDutiesAndTaxes: optionalCostSchema,
 }).superRefine((data, ctx) => {
   if (data.companyType === 'insumos' && !data.exporterAddressKey) {
     ctx.addIssue({
@@ -64,7 +74,7 @@ interface CommercialInvoiceFormProps {
 export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialInvoiceFormProps) => {
   const suggestedRepName = 'Caroline Franzen';
   const suggestedRepTitle = 'Verdetec Administrative Manager';
-  const currencyLabel = 'US$';
+  const currencyLabel = getCurrencySymbol(invoice?.currency || 'US$');
   const normalizeRepName = (name?: string) => {
     const trimmed = (name || '').trim();
     if (!trimmed || trimmed === 'Rafael Hermes') return suggestedRepName;
@@ -104,7 +114,10 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       exporterAddressKey: undefined,
       incoterm: 'EXW',
       modeOfTransport: 'To be arranged and paid by the importer',
-      paymentMethod: '100% PRIOR TO SHIPPING.',
+      paymentMethod: DEFAULT_PAYMENT_TERMS,
+      freightCost: undefined,
+      insuranceCost: undefined,
+      importDutiesAndTaxes: undefined,
       clientPosition: suggestedRepName,
       clientPositionTitle: suggestedRepTitle,
       clientRepresentative: 'N/A',
@@ -117,8 +130,6 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   const exporterAddressKey = watch('exporterAddressKey') as InsumosAddressKey | undefined;
   const resolvedCompany = getCompanyData(companyType, exporterAddressKey);
   const incoterm = watch('incoterm');
-  const showFreightCost = ['CFR', 'CPT', 'CIF', 'CIP'].includes(incoterm);
-  const showInsuranceCost = ['CIF', 'CIP'].includes(incoterm);
   const showPortFields = ['FOB', 'FAS', 'CIF', 'CFR'].includes(incoterm);
   const showPlaceOfDelivery =
     incoterm === 'CPT' ||
@@ -132,9 +143,21 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     incoterm === 'DDP';
   const isMaritimeIncoterm = showPortFields;
   const isMultimodalIncoterm = showPlaceOfDelivery || showPlaceOfDestination;
-  const freightCostValue = showFreightCost ? Number(watch('freightCost') || 0) : 0;
-  const insuranceCostValue = showInsuranceCost ? Number(watch('insuranceCost') || 0) : 0;
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
+  const {
+    freightCost: freightCostValue,
+    insuranceCost: insuranceCostValue,
+    importDutiesAndTaxes: importDutiesAndTaxesValue,
+    discountValue,
+    totalAmount,
+  } = calculateInvoiceTotals({
+    subtotal,
+    freightCost: watch('freightCost'),
+    insuranceCost: watch('insuranceCost'),
+    importDutiesAndTaxes: watch('importDutiesAndTaxes'),
+    applyDiscount,
+    discountAmount,
+  });
   const insumosNoteSuggestion = 'Unit price refers to price per kilogram (Kg).\n\nPacking Specifications:';
   const notesValue = watch('notes');
   const notePlaceholder = companyType === 'insumos'
@@ -172,14 +195,6 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     }
   }, [autoNoteApplied, companyType, insumosNoteSuggestion, notesValue, setValue]);
   
-  // Clear freight/insurance when Incoterm does not require
-  if (!showFreightCost && watch('freightCost')) {
-    setValue('freightCost', undefined);
-  }
-  if (!showInsuranceCost && watch('insuranceCost')) {
-    setValue('insuranceCost', undefined);
-  }
-
   // Clear port/place fields when hidden
   if (!showPortFields) {
     if (watch('portOfLoading')) setValue('portOfLoading', undefined);
@@ -327,9 +342,12 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       const invoiceNumber = `CI-${baseNumber}`;
       const totalPackingWeight = getTotalPackingWeight();
       const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
+      const freightForSave = sanitizeOptionalInvoiceAmount(data.freightCost);
+      const insuranceForSave = sanitizeOptionalInvoiceAmount(data.insuranceCost);
+      const importDutiesAndTaxesForSave = sanitizeOptionalInvoiceAmount(data.importDutiesAndTaxes);
 
       let targetOrderId = orderId || invoice?.orderId;
-      let existingOrder = await getOrderByBaseNumber(baseNumber);
+      const existingOrder = await getOrderByBaseNumber(baseNumber);
       if (existingOrder) {
         targetOrderId = existingOrder.id;
       } else if (!targetOrderId) {
@@ -348,7 +366,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         orderId: targetOrderId,
         issueDate: new Date().toISOString().split('T')[0],
         placeOfIssue: 'Brusque-SC-Brazil',
-        currency: 'US$',
+        currency: currencyLabel,
         items,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -364,8 +382,9 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         modeOfTransport: data.modeOfTransport,
         availability: '',
         paymentMethod: data.paymentMethod,
-        freightCost: showFreightCost ? data.freightCost : undefined,
-        insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
+        freightCost: freightForSave,
+        insuranceCost: insuranceForSave,
+        importDutiesAndTaxes: importDutiesAndTaxesForSave,
         applyDiscount,
         discountAmount: discountValue,
         clientRepresentative: data.clientRepresentative,
@@ -427,6 +446,9 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     const repName = normalizeRepName(data.clientPosition);
     const repTitle = normalizeRepTitle(data.clientPositionTitle);
     const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
+    const freightForPreview = sanitizeOptionalInvoiceAmount(data.freightCost);
+    const insuranceForPreview = sanitizeOptionalInvoiceAmount(data.insuranceCost);
+    const importDutiesAndTaxesForPreview = sanitizeOptionalInvoiceAmount(data.importDutiesAndTaxes);
 
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
@@ -435,7 +457,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       orderId: orderId || invoice?.orderId,
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brazil',
-      currency: 'US$',
+      currency: currencyLabel,
         items,
         createdAt: invoice?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -452,8 +474,9 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       modeOfTransport: data.modeOfTransport,
       availability: '',
       paymentMethod: data.paymentMethod,
-      freightCost: showFreightCost ? data.freightCost : undefined,
-      insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
+      freightCost: freightForPreview,
+      insuranceCost: insuranceForPreview,
+      importDutiesAndTaxes: importDutiesAndTaxesForPreview,
       applyDiscount,
       discountAmount: discountValue,
       clientRepresentative: data.clientRepresentative,
@@ -484,6 +507,9 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
     const repName = normalizeRepName(data.clientPosition);
     const repTitle = normalizeRepTitle(data.clientPositionTitle);
     const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
+    const freightForPreview = sanitizeOptionalInvoiceAmount(data.freightCost);
+    const insuranceForPreview = sanitizeOptionalInvoiceAmount(data.insuranceCost);
+    const importDutiesAndTaxesForPreview = sanitizeOptionalInvoiceAmount(data.importDutiesAndTaxes);
 
     const invoiceData: Invoice = {
       id: invoice?.id || Date.now().toString(),
@@ -492,7 +518,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       orderId: orderId || invoice?.orderId,
       issueDate: new Date().toLocaleDateString('en-US'),
       placeOfIssue: 'Brusque-SC-Brazil',
-      currency: 'US$',
+      currency: currencyLabel,
       items,
       createdAt: invoice?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -507,10 +533,11 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
       importerCountry: data.importerCountry,
       incoterm: data.incoterm,
       modeOfTransport: data.modeOfTransport,
-      availability: data.availability || '',
+      availability: '',
       paymentMethod: data.paymentMethod,
-      freightCost: showFreightCost ? data.freightCost : undefined,
-      insuranceCost: showInsuranceCost ? data.insuranceCost : undefined,
+      freightCost: freightForPreview,
+      insuranceCost: insuranceForPreview,
+      importDutiesAndTaxes: importDutiesAndTaxesForPreview,
       applyDiscount,
       discountAmount: discountValue,
       clientRepresentative: data.clientRepresentative,
@@ -541,15 +568,6 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   }, 0);
   const totalPackingWeight = includePackingWeight ? getTotalPackingWeight() : 0;
   const totalWeight = itemsWeight + (includePackingWeight ? totalPackingWeight : 0);
-  const totalAmountBeforeDiscount =
-    ['CIF', 'CIP'].includes(incoterm)
-      ? subtotal + freightCostValue + insuranceCostValue
-      : ['CFR', 'CPT'].includes(incoterm)
-        ? subtotal + freightCostValue
-        : subtotal;
-  const discountValue = applyDiscount ? Math.min(Math.max(discountAmount, 0), subtotal) : 0;
-  const totalAmount = Math.max(totalAmountBeforeDiscount - discountValue, 0);
-
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 p-6">
       <Card className="p-6">
@@ -699,7 +717,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
             </div>
 
             <div>
-              <Label>Terms of Payment: *</Label>
+              <Label>Payment Terms *</Label>
               <Input {...register('paymentMethod')} />
               {errors.paymentMethod && <span className="text-sm text-destructive">{errors.paymentMethod.message}</span>}
             </div>
@@ -736,6 +754,40 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
               )}
             </div>
           )}
+
+          {/* Optional costs are available for every Incoterm. */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div>
+              <Label>Freight Cost (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('freightCost', { valueAsNumber: true })}
+              />
+              {errors.freightCost && <span className="text-sm text-destructive">{errors.freightCost.message}</span>}
+            </div>
+            <div>
+              <Label>Insurance Cost (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('insuranceCost', { valueAsNumber: true })}
+              />
+              {errors.insuranceCost && <span className="text-sm text-destructive">{errors.insuranceCost.message}</span>}
+            </div>
+            <div>
+              <Label>Import Duties &amp; Taxes (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                {...register('importDutiesAndTaxes', { valueAsNumber: true })}
+              />
+              {errors.importDutiesAndTaxes && <span className="text-sm text-destructive">{errors.importDutiesAndTaxes.message}</span>}
+            </div>
+          </div>
 
           <h3 className="font-semibold text-lg mt-6">Items</h3>
           
@@ -857,13 +909,16 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
               <div className="flex justify-end">
                 <span>Subtotal (Merchandise): {currencyLabel} {formatInvoiceAmount(subtotal, currencyLabel)}</span>
               </div>
-              {(freightCostValue > 0 || insuranceCostValue > 0) && (
+              {(freightCostValue > 0 || insuranceCostValue > 0 || importDutiesAndTaxesValue > 0) && (
                 <div className="flex justify-end gap-6 text-sm mt-1">
                   {freightCostValue > 0 && (
                     <span>+ Freight: {currencyLabel} {formatInvoiceAmount(freightCostValue, currencyLabel)}</span>
                   )}
                   {insuranceCostValue > 0 && (
                     <span>+ Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCostValue, currencyLabel)}</span>
+                  )}
+                  {importDutiesAndTaxesValue > 0 && (
+                    <span>+ Import Duties &amp; Taxes: {currencyLabel} {formatInvoiceAmount(importDutiesAndTaxesValue, currencyLabel)}</span>
                   )}
                 </div>
               )}
@@ -904,33 +959,6 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
               </div>
             </div>
           </div>
-
-          {(showFreightCost || showInsuranceCost) && (
-            <div className="grid grid-cols-2 gap-4">
-              {showFreightCost && (
-                <div>
-                  <Label>Freight Cost *</Label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    {...register('freightCost', { valueAsNumber: true, required: showFreightCost })}
-                  />
-                  {errors.freightCost && <span className="text-sm text-destructive">Freight cost is required for this Incoterm.</span>}
-                </div>
-              )}
-              {showInsuranceCost && (
-                <div>
-                  <Label>Insurance Cost *</Label>
-                  <Input 
-                    type="number"
-                    step="0.01"
-                    {...register('insuranceCost', { valueAsNumber: true, required: showInsuranceCost })}
-                  />
-                  {errors.insuranceCost && <span className="text-sm text-destructive">Insurance cost is required for this Incoterm.</span>}
-                </div>
-              )}
-            </div>
-          )}
 
           <h3 className="font-semibold text-lg mt-6">Notes (Optional)</h3>
           

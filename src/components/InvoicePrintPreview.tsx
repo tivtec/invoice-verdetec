@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import verdetecLogo from '@/assets/verdetec-logo.png';
 import { formatInvoiceAmount } from '@/utils/numberFormat';
+import { calculateInvoiceTotals } from '@/utils/invoiceTotals';
 
 interface InvoicePrintPreviewProps {
   invoice: Invoice;
@@ -377,9 +378,7 @@ const PreviewHeader = ({
           </p>
         )}
         <p className="text-xs">
-          <span className="font-semibold">
-            {invoice.documentType === 'commercial' ? 'Terms of Payment:' : 'Payment Method:'}
-          </span>{' '}
+          <span className="font-semibold">Payment Terms:</span>{' '}
           {invoice.paymentMethod}
         </p>
         {invoice.documentType === 'packing' && invoice.sourceInvoiceId && (
@@ -498,6 +497,7 @@ type SummaryBlockProps = {
   subtotal: number;
   freightCost: number;
   insuranceCost: number;
+  importDutiesAndTaxes: number;
   discountValue: number;
   totalAmount: number;
   totalWeight: number;
@@ -505,6 +505,7 @@ type SummaryBlockProps = {
   showTotalWeight: boolean;
   showFreightLine: boolean;
   showInsuranceLine: boolean;
+  showImportDutiesAndTaxesLine: boolean;
 };
 
 const SummaryBlock = ({
@@ -514,6 +515,7 @@ const SummaryBlock = ({
   subtotal,
   freightCost,
   insuranceCost,
+  importDutiesAndTaxes,
   discountValue,
   totalAmount,
   totalWeight,
@@ -521,6 +523,7 @@ const SummaryBlock = ({
   showTotalWeight,
   showFreightLine,
   showInsuranceLine,
+  showImportDutiesAndTaxesLine,
 }: SummaryBlockProps) => {
   const isPackingList = invoice.documentType === 'packing';
 
@@ -578,6 +581,14 @@ const SummaryBlock = ({
           <span>Insurance</span>
           <span>
             {currencyLabel} {formatInvoiceAmount(insuranceCost, currencyLabel)}
+          </span>
+        </div>
+      )}
+      {showImportDutiesAndTaxesLine && (
+        <div className="flex items-center justify-between">
+          <span>Import Duties &amp; Taxes</span>
+          <span>
+            {currencyLabel} {formatInvoiceAmount(importDutiesAndTaxes, currencyLabel)}
           </span>
         </div>
       )}
@@ -694,24 +705,29 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
     ? invoice.totalPackingWeight ?? itemPackingWeight ?? invoice.packingWeight ?? 0
     : 0;
   const totalWeight = itemsWeight + totalPackingWeight;
-  const freightCost = normalizeNumber(invoice.freightCost);
-  const insuranceCost = normalizeNumber(invoice.insuranceCost);
+  const {
+    freightCost,
+    insuranceCost,
+    importDutiesAndTaxes,
+    discountValue,
+    totalAmount,
+  } = calculateInvoiceTotals({
+    subtotal,
+    freightCost: invoice.freightCost,
+    insuranceCost: invoice.insuranceCost,
+    importDutiesAndTaxes: invoice.importDutiesAndTaxes,
+    applyDiscount: invoice.applyDiscount,
+    discountAmount: invoice.discountAmount,
+  });
   const showFreightLine =
     ['commercial', 'proforma'].includes(invoice.documentType) &&
-    (freightCost > 0 || ['CFR', 'CPT', 'CIF', 'CIP'].includes(incotermCode));
+    freightCost > 0;
   const showInsuranceLine =
     ['commercial', 'proforma'].includes(invoice.documentType) &&
-    (insuranceCost > 0 || ['CIF', 'CIP'].includes(incotermCode));
-  const discountValue = invoice.applyDiscount
-    ? Math.min(Math.max(normalizeNumber(invoice.discountAmount), 0), subtotal)
-    : 0;
-  const totalAmountBeforeDiscount =
-    ['CIF', 'CIP'].includes(incotermCode)
-      ? subtotal + freightCost + insuranceCost
-      : ['CFR', 'CPT'].includes(incotermCode)
-        ? subtotal + freightCost
-        : subtotal;
-  const totalAmount = Math.max(totalAmountBeforeDiscount - discountValue, 0);
+    insuranceCost > 0;
+  const showImportDutiesAndTaxesLine =
+    ['commercial', 'proforma'].includes(invoice.documentType) &&
+    importDutiesAndTaxes > 0;
   const documentTitle =
     invoice.documentType === 'proforma'
       ? 'PROFORMA INVOICE'
@@ -870,6 +886,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                     subtotal={subtotal}
                     freightCost={freightCost}
                     insuranceCost={insuranceCost}
+                    importDutiesAndTaxes={importDutiesAndTaxes}
                     discountValue={discountValue}
                     totalAmount={totalAmount}
                     totalWeight={totalWeight}
@@ -877,6 +894,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                     showTotalWeight={showTotalWeight}
                     showFreightLine={showFreightLine}
                     showInsuranceLine={showInsuranceLine}
+                    showImportDutiesAndTaxesLine={showImportDutiesAndTaxesLine}
                   />
                 )}
 
@@ -928,6 +946,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                 subtotal={subtotal}
                 freightCost={freightCost}
                 insuranceCost={insuranceCost}
+                importDutiesAndTaxes={importDutiesAndTaxes}
                 discountValue={discountValue}
                 totalAmount={totalAmount}
                 totalWeight={totalWeight}
@@ -935,6 +954,7 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
                 showTotalWeight={showTotalWeight}
                 showFreightLine={showFreightLine}
                 showInsuranceLine={showInsuranceLine}
+                showImportDutiesAndTaxesLine={showImportDutiesAndTaxesLine}
               />
             </div>
 

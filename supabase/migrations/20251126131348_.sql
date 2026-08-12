@@ -88,4 +88,4 @@ CREATE TRIGGER update_importers_updated_at
 CREATE TRIGGER update_invoices_updated_at
   BEFORE UPDATE ON public.invoices
   FOR EACH ROW
-  EXECUTE FUNCTION public.update_updated_at_column();
+  EXECUTE FUNCTION public.update_updated_at_column();;

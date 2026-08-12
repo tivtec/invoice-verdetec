@@ -24,6 +24,8 @@ export const getCurrencySymbol = (currency: string): string => {
   return option?.symbol || currency;
 };
 
+export const DEFAULT_PAYMENT_TERMS = '100% Advance by T/T or Letter of Credit (L/C).';
+
 export interface InvoiceItem {
   id: string;
   hsCode: string;
@@ -58,9 +60,12 @@ export interface Invoice {
   modeOfTransport: string;
   availability: string;
   currency: string;
+  // Kept as paymentMethod internally for compatibility with the existing database column.
+  // In the UI and generated documents this value is presented as Payment Terms.
   paymentMethod: string;
   freightCost?: number;
   insuranceCost?: number;
+  importDutiesAndTaxes?: number;
   
   // Port fields (for Commercial Invoice - conditional based on Incoterm)
   portOfLoading?: string;
@@ -86,6 +91,7 @@ export interface Invoice {
   // Display options
   showTotalWeight?: boolean;
   packingWeight?: number;
+  manualPackingWeight?: number;
   includePackingWeight?: boolean;
   totalPackingWeight?: number;
   exporterAddressKey?: InsumosAddressKey;

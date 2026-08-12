@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, DEFAULT_PAYMENT_TERMS } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generatePackingListNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters, getInvoicesByOrderId } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -124,7 +124,7 @@ Packing Specifications:`;
       portOfDischarge: '',
       placeOfDelivery: '',
       placeOfDestination: '',
-      paymentMethod: '100% PRIOR TO SHIPPING.',
+      paymentMethod: DEFAULT_PAYMENT_TERMS,
       clientPosition: suggestedRepName,
       clientPositionTitle: suggestedRepTitle,
       notes: packingListDefaultNotes,
@@ -344,7 +344,7 @@ Packing Specifications:`;
       const normalizedInvoiceNumber = `PL-${baseNumber}`;
 
       let targetOrderId = orderId || invoice?.orderId;
-      let existingOrder = await getOrderByBaseNumber(baseNumber);
+      const existingOrder = await getOrderByBaseNumber(baseNumber);
       if (existingOrder) {
         targetOrderId = existingOrder.id;
       } else if (!targetOrderId) {
