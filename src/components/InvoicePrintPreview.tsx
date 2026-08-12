@@ -586,7 +586,7 @@ const SummaryBlock = ({
       )}
       {showImportDutiesAndTaxesLine && (
         <div className="flex items-center justify-between">
-          <span>Import Duties &amp; Taxes</span>
+          <span>Additional Costs</span>
           <span>
             {currencyLabel} {formatInvoiceAmount(importDutiesAndTaxes, currencyLabel)}
           </span>

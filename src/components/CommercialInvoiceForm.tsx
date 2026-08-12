@@ -778,7 +778,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
               {errors.insuranceCost && <span className="text-sm text-destructive">{errors.insuranceCost.message}</span>}
             </div>
             <div>
-              <Label>Import Duties &amp; Taxes (optional)</Label>
+              <Label>Additional Costs</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -918,7 +918,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                     <span>+ Insurance: {currencyLabel} {formatInvoiceAmount(insuranceCostValue, currencyLabel)}</span>
                   )}
                   {importDutiesAndTaxesValue > 0 && (
-                    <span>+ Import Duties &amp; Taxes: {currencyLabel} {formatInvoiceAmount(importDutiesAndTaxesValue, currencyLabel)}</span>
+                    <span>+ Additional Costs: {currencyLabel} {formatInvoiceAmount(importDutiesAndTaxesValue, currencyLabel)}</span>
                   )}
                 </div>
               )}
