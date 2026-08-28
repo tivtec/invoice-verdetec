@@ -1,6 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
 import { Invoice } from '@/types/invoice';
 import { Order, Attachment } from '@/types/order';
+import {
+  buildDuplicatedInvoiceNumber,
+  getDuplicatedAttachmentPath,
+} from '@/utils/orderDuplication';
 
 // Order operations
 const insertOrder = async (baseNumber: string, attempt = 1): Promise<Order> => {
@@ -154,6 +158,7 @@ const formatInvoiceFromDb = (dbInvoice: any): Invoice => {
     clientPosition: dbInvoice.client_position,
     clientPositionTitle: dbInvoice.client_position_title,
     notes: dbInvoice.notes || '',
+    sourceInvoiceId: dbInvoice.source_invoice_id || undefined,
     showTotalWeight: dbInvoice.show_total_weight ?? true,
     packingWeight: dbInvoice.packing_weight || itemPackingWeight || 0,
     includePackingWeight: dbInvoice.include_packing_weight ?? false,
@@ -815,6 +820,133 @@ export const getAttachmentsByOrderId = async (orderId: string): Promise<Attachme
 
   if (error) throw error;
   return data || [];
+};
+
+export interface DuplicateOrderResult {
+  order: Order;
+  invoiceCount: number;
+  attachmentCount: number;
+}
+
+export const duplicateOrder = async (sourceOrderId: string): Promise<DuplicateOrderResult> => {
+  const [sourceOrder, sourceInvoices, sourceAttachments] = await Promise.all([
+    getOrderById(sourceOrderId),
+    getInvoicesByOrderId(sourceOrderId),
+    getAttachmentsByOrderId(sourceOrderId),
+  ]);
+
+  if (!sourceOrder) {
+    throw new Error('Pedido original não encontrado.');
+  }
+
+  let duplicatedOrder: Order | null = null;
+  const uploadedPaths: string[] = [];
+
+  try {
+    duplicatedOrder = await createOrder(await getBaseNumber());
+
+    if (sourceOrder.order_note) {
+      const updatedOrder = await updateOrderNote(duplicatedOrder.id, sourceOrder.order_note);
+      if (updatedOrder) duplicatedOrder = updatedOrder;
+    }
+
+    const invoiceIdMap = new Map<string, string>();
+
+    for (const sourceInvoice of sourceInvoices) {
+      const duplicatedInvoiceNumber = buildDuplicatedInvoiceNumber(
+        sourceInvoice.invoiceNumber,
+        duplicatedOrder.base_number,
+      );
+      const duplicatedInvoiceId = crypto.randomUUID();
+      const timestamp = new Date().toISOString();
+
+      await saveInvoice(
+        {
+          ...sourceInvoice,
+          id: duplicatedInvoiceId,
+          invoiceNumber: duplicatedInvoiceNumber,
+          orderId: duplicatedOrder.id,
+          sourceInvoiceId: undefined,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          items: sourceInvoice.items.map((item) => ({
+            ...item,
+            id: crypto.randomUUID(),
+          })),
+        },
+        duplicatedOrder.id,
+      );
+
+      invoiceIdMap.set(sourceInvoice.id, duplicatedInvoiceId);
+    }
+
+    for (const sourceInvoice of sourceInvoices) {
+      if (!sourceInvoice.sourceInvoiceId) continue;
+
+      const duplicatedInvoiceId = invoiceIdMap.get(sourceInvoice.id);
+      const duplicatedSourceInvoiceId = invoiceIdMap.get(sourceInvoice.sourceInvoiceId);
+      if (!duplicatedInvoiceId || !duplicatedSourceInvoiceId) continue;
+
+      const { error } = await supabase
+        .from('invoices')
+        .update({ source_invoice_id: duplicatedSourceInvoiceId })
+        .eq('id', duplicatedInvoiceId);
+
+      if (error) throw error;
+    }
+
+    for (const sourceAttachment of sourceAttachments) {
+      const { data: file, error: downloadError } = await supabase.storage
+        .from('invoice-attachments')
+        .download(sourceAttachment.file_path);
+
+      if (downloadError) throw downloadError;
+
+      const duplicatedPath = getDuplicatedAttachmentPath(
+        duplicatedOrder.id,
+        sourceAttachment.file_name,
+        crypto.randomUUID(),
+      );
+      const { error: uploadError } = await supabase.storage
+        .from('invoice-attachments')
+        .upload(duplicatedPath, file, {
+          contentType: sourceAttachment.file_type || undefined,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+      uploadedPaths.push(duplicatedPath);
+
+      const { error: attachmentError } = await supabase
+        .from('attachments')
+        .insert({
+          order_id: duplicatedOrder.id,
+          invoice_id: sourceAttachment.invoice_id
+            ? invoiceIdMap.get(sourceAttachment.invoice_id) || null
+            : null,
+          file_name: sourceAttachment.file_name,
+          file_path: duplicatedPath,
+          file_size: sourceAttachment.file_size,
+          file_type: sourceAttachment.file_type,
+        });
+
+      if (attachmentError) throw attachmentError;
+    }
+
+    return {
+      order: duplicatedOrder,
+      invoiceCount: sourceInvoices.length,
+      attachmentCount: sourceAttachments.length,
+    };
+  } catch (error) {
+    if (uploadedPaths.length > 0) {
+      await supabase.storage.from('invoice-attachments').remove(uploadedPaths);
+    }
+    if (duplicatedOrder) {
+      await deleteOrder(duplicatedOrder.id);
+    }
+    throw error;
+  }
 };
 
 export const getAttachmentUrl = (filePath: string): string => {

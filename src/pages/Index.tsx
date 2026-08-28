@@ -8,7 +8,14 @@ import { OrderList } from '@/components/OrderList';
 import { InvoicePrintPreview } from '@/components/InvoicePrintPreview';
 import { SearchBar } from '@/components/SearchBar';
 import { Invoice } from '@/types/invoice';
-import { getOrders, getInvoicesByOrderId, getAttachmentsByOrderId, createOrder, getBaseNumber } from '@/utils/supabaseStorage';
+import {
+  getOrders,
+  getInvoicesByOrderId,
+  getAttachmentsByOrderId,
+  createOrder,
+  duplicateOrder,
+  getBaseNumber,
+} from '@/utils/supabaseStorage';
 import verdetecLogoDark from '@/assets/verdetec-logo-dark.png';
 import {
   Dialog,
@@ -32,6 +39,7 @@ const Index = () => {
   const [currentOrderId, setCurrentOrderId] = useState<string | undefined>();
   const [availableSourceInvoices, setAvailableSourceInvoices] = useState<Invoice[]>([]);
   const [lastCreatedOrderId, setLastCreatedOrderId] = useState<string | undefined>();
+  const [duplicatingOrderId, setDuplicatingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -128,6 +136,33 @@ const Index = () => {
         description: message,
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleDuplicateOrder = async (orderId: string, orderNumber: string) => {
+    const confirmed = window.confirm(
+      `Duplicar ${orderNumber}? O novo pedido receberá o próximo número disponível.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setDuplicatingOrderId(orderId);
+      const result = await duplicateOrder(orderId);
+      setLastCreatedOrderId(result.order.id);
+      setRefreshKey((previous) => previous + 1);
+      toast({
+        title: 'Pedido duplicado',
+        description: `${result.order.order_number} criado com ${result.invoiceCount} documento(s) e ${result.attachmentCount} anexo(s).`,
+      });
+    } catch (error) {
+      console.error('Error duplicating order:', error);
+      toast({
+        title: 'Erro ao duplicar pedido',
+        description: getErrorMessage(error),
+        variant: 'destructive',
+      });
+    } finally {
+      setDuplicatingOrderId(null);
     }
   };
 
@@ -385,6 +420,8 @@ const Index = () => {
               onCreateProforma={handleCreateProformaInOrder}
               onCreateCommercial={handleCreateCommercialInOrder}
               onCreatePacking={handleCreatePackingInOrder}
+              onDuplicateOrder={handleDuplicateOrder}
+              duplicatingOrderId={duplicatingOrderId}
               expandOrderId={lastCreatedOrderId}
             />
           </>

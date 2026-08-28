@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2, Plus, Upload, Pencil, Check, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Paperclip, Trash2, Plus, Upload, Pencil, Check, X, Copy, Loader2 } from 'lucide-react';
 import { Order, Attachment } from '@/types/order';
 import { Invoice } from '@/types/invoice';
 import { getAttachmentUrl, deleteAttachment, deleteOrder, deleteInvoice, updateOrderNote } from '@/utils/supabaseStorage';
@@ -22,10 +22,12 @@ interface OrderListProps {
   onCreateProforma?: (orderId: string) => void;
   onCreateCommercial?: (orderId: string, sourceInvoice?: Invoice) => void;
   onCreatePacking?: (orderId: string, sourceInvoice?: Invoice) => void;
+  onDuplicateOrder?: (orderId: string, orderNumber: string) => void;
+  duplicatingOrderId?: string | null;
   expandOrderId?: string;
 }
 
-export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking, expandOrderId }: OrderListProps) => {
+export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, onCreateProforma, onCreateCommercial, onCreatePacking, onDuplicateOrder, duplicatingOrderId, expandOrderId }: OrderListProps) => {
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [showUpload, setShowUpload] = useState<string | null>(null);
   const [orderNotes, setOrderNotes] = useState<Record<string, string>>({});
@@ -219,6 +221,23 @@ export const OrderList = ({ orders, onSelectInvoice, onEditInvoice, onRefresh, o
                     </button>
                   )}
                 </div>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  disabled={Boolean(duplicatingOrderId)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDuplicateOrder?.(order.id, order.order_number);
+                  }}
+                  title={`Duplicar ${order.order_number}`}
+                  aria-label={`Duplicar ${order.order_number}`}
+                >
+                  {duplicatingOrderId === order.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
                 <span className="text-sm text-muted-foreground">
                   {new Date(order.created_at).toLocaleDateString()}
                 </span>
