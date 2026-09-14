@@ -119,9 +119,9 @@ export const COMPANY_DATA = {
   insumos: {
     name: 'INSUMOS HIDROSSEMEADURA VERDETEC LTDA',
     cnpj: '41.183.017/0001-09',
-    address: 'Rua Mário Murara, nº 2.735, Distrito de Volta Grande, Rio Negrinho-SC',
-    zipCode: '89299-506',
-    phone: '+55 (47) 3308-8805',
+    address: 'EST MFR 169, nº 2821, Águas Claras, Rio Negrinho – SC',
+    zipCode: '89.299-899',
+    phone: '(47) 3255-0655',
     bankDetails: {
       bank: 'Banco do Brasil – City of Brusque/SC',
       swift: 'BRASBRRJCTA',
@@ -129,12 +129,16 @@ export const COMPANY_DATA = {
     },
     branches: {
       insumos_rio_negrinho: {
-        address: 'Rua Mário Murara, nº 2.735, Distrito de Volta Grande, Rio Negrinho-SC',
-        zipCode: '89299-506',
+        tradeName: 'VERDETEC',
+        address: 'EST MFR 169, nº 2821, Águas Claras, Rio Negrinho – SC',
+        zipCode: '89.299-899',
+        email: 'contato@verdetec.com',
+        phone: '(47) 3255-0655',
       },
       insumos_itajai: {
         address: 'Rua Vergílio Cadore, 9259, Campeche, Itajaí, SC, Brasil',
         zipCode: '88318-995',
+        phone: '+55 (47) 3308-8805',
       },
     },
   }
@@ -145,8 +149,12 @@ export const getCompanyData = (companyType: CompanyType, exporterAddressKey?: In
   if (companyType !== 'insumos') return COMPANY_DATA[companyType];
   const branch = COMPANY_DATA.insumos.branches[exporterAddressKey || 'insumos_rio_negrinho'];
   return {
-    ...COMPANY_DATA.insumos,
-    address: branch.address,
-    zipCode: branch.zipCode,
+    name: COMPANY_DATA.insumos.name,
+    cnpj: COMPANY_DATA.insumos.cnpj,
+    address: COMPANY_DATA.insumos.address,
+    zipCode: COMPANY_DATA.insumos.zipCode,
+    phone: COMPANY_DATA.insumos.phone,
+    bankDetails: COMPANY_DATA.insumos.bankDetails,
+    ...branch,
   };
 };

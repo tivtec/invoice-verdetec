@@ -14,6 +14,7 @@ import { saveInvoice as saveToLocalStorage, generatePackingListNumber } from '@/
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters, getInvoicesByOrderId } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
+import { ExporterDetails } from './ExporterDetails';
 
 const packingSchema = z.object({
   companyType: z.enum(['equipamentos', 'insumos']),
@@ -564,7 +565,7 @@ Packing Specifications:`;
                 >
                   <option value="">Selecione...</option>
                   <option value="insumos_itajai">ITAJAI – Unidade Campeche</option>
-                  <option value="insumos_rio_negrinho">RIO NEGRINHO – Unidade Volta Grande</option>
+                  <option value="insumos_rio_negrinho">RIO NEGRINHO – Unidade Águas Claras</option>
                 </select>
                 {errors.exporterAddressKey && <span className="text-sm text-destructive">{errors.exporterAddressKey.message}</span>}
               </div>
@@ -579,11 +580,7 @@ Packing Specifications:`;
 
           <div className="bg-muted p-4 rounded-md">
             <h3 className="font-semibold mb-2">Exporter Data</h3>
-            <p className="text-sm">{resolvedCompany.name}</p>
-            <p className="text-sm">CNPJ: {resolvedCompany.cnpj}</p>
-            <p className="text-sm">{resolvedCompany.address}</p>
-            <p className="text-sm">ZIP Code: {resolvedCompany.zipCode}</p>
-            <p className="text-sm">Phone: {resolvedCompany.phone}</p>
+            <ExporterDetails company={resolvedCompany} />
           </div>
 
           <h3 className="font-semibold text-lg mt-6">Importer / Buyer Data</h3>

@@ -5,6 +5,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import verdetecLogo from '@/assets/verdetec-logo.png';
 import { formatInvoiceAmount } from '@/utils/numberFormat';
 import { calculateInvoiceTotals } from '@/utils/invoiceTotals';
+import { ExporterDetails } from './ExporterDetails';
 
 interface InvoicePrintPreviewProps {
   invoice: Invoice;
@@ -309,11 +310,7 @@ const PreviewHeader = ({
     <div className="grid grid-cols-2 gap-6 mb-4">
       <div>
         <h3 className="font-semibold mb-1 text-sm">Supplier / Exporter:</h3>
-        <p className="font-bold text-sm">{company.name}</p>
-        <p className="text-xs">CNPJ: {company.cnpj}</p>
-        <p className="text-xs break-words">{company.address}</p>
-        <p className="text-xs">ZIP Code: {company.zipCode}</p>
-        <p className="text-xs">Phone: {company.phone}</p>
+        <ExporterDetails company={company} compact />
         <p className="text-xs">Country of Origin: Brazil</p>
       </div>
 
