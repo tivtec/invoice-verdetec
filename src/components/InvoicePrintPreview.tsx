@@ -1,5 +1,5 @@
 import { MutableRefObject, Ref, useLayoutEffect, useRef, useState } from 'react';
-import { Invoice, InvoiceItem, getCompanyData } from '@/types/invoice';
+import { Invoice, InvoiceItem, getCompanyData, DEFAULT_SALES_REPRESENTATIVE, normalizeRepresentativeName } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import verdetecLogo from '@/assets/verdetec-logo.png';
@@ -341,13 +341,13 @@ const PreviewHeader = ({
 
       <div className="text-right">
         <p className="text-xs">
-          <span className="font-semibold">INCOTERM:</span> {invoice.incoterm}
+          <span className="font-semibold">INCOTERM:</span> {invoice.incoterm === 'N/A' ? 'N/A (Not Applicable)' : invoice.incoterm}
         </p>
         <p className="text-xs">
           <span className="font-semibold">Currency:</span> {invoice.currency || 'USD'}
         </p>
         <p className="text-xs">
-          <span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport}
+          <span className="font-semibold">Mode of Transport:</span> {invoice.modeOfTransport === 'N/A' ? 'N/A (Not Applicable)' : invoice.modeOfTransport}
         </p>
         {invoice.availability && invoice.documentType === 'proforma' && (
           <p className="text-xs">
@@ -739,8 +739,13 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
     ...(hasNotes ? ['notes' as TailBlockKey] : []),
     'signature',
   ];
-  const repName = (invoice.clientPosition || '').trim() || 'Caroline Franzen';
-  const repTitle = (invoice.clientPositionTitle || '').trim() || 'Verdetec Administrative Manager';
+  const repName = normalizeRepresentativeName(
+    invoice.clientPosition,
+    invoice.documentType === 'proforma' ? DEFAULT_SALES_REPRESENTATIVE : 'Caroline Franzen'
+  );
+  const repTitle = (invoice.clientPositionTitle || '').trim() || (
+    invoice.documentType === 'proforma' ? 'VERDETEC SALES MANAGER' : 'Verdetec Administrative Manager'
+  );
 
   const fitPageInnerRef = useRef<HTMLDivElement | null>(null);
   const headerMeasureRef = useRef<HTMLDivElement | null>(null);

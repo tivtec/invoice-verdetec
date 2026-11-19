@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, getCurrencySymbol, DEFAULT_PAYMENT_TERMS } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, getCurrencySymbol, DEFAULT_PAYMENT_TERMS, normalizeRepresentativeName } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generateCommercialInvoiceNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -76,15 +76,10 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
   const suggestedRepName = 'Caroline Franzen';
   const suggestedRepTitle = 'Verdetec Administrative Manager';
   const currencyLabel = getCurrencySymbol(invoice?.currency || 'US$');
-  const normalizeRepName = (name?: string) => {
-    const trimmed = (name || '').trim();
-    if (!trimmed || trimmed === 'Rafael Hermes') return suggestedRepName;
-    return trimmed;
-  };
+  const normalizeRepName = (name?: string) => normalizeRepresentativeName(name, suggestedRepName);
   const normalizeRepTitle = (title?: string) => {
     const trimmed = (title || '').trim();
-    if (!trimmed || trimmed.toUpperCase() === 'VERDETEC SALES MANAGER') return suggestedRepTitle;
-    return trimmed;
+    return trimmed || suggestedRepTitle;
   };
 
   const { toast } = useToast();
@@ -390,8 +385,8 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
         discountAmount: discountValue,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
-        clientPosition: data.clientPosition || 'Caroline Franzen',
-        clientPositionTitle: data.clientPositionTitle || 'Verdetec Administrative Manager',
+        clientPosition: normalizeRepName(data.clientPosition),
+        clientPositionTitle: normalizeRepTitle(data.clientPositionTitle),
         notes: data.notes,
         sourceInvoiceId: invoice?.documentType === 'proforma' ? invoice.invoiceNumber : undefined,
         packingWeight: totalPackingWeight,
@@ -696,6 +691,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                 <option value="DAP">DAP - Delivered at Place</option>
                 <option value="DPU">DPU - Delivered at Place Unloaded</option>
                 <option value="DDP">DDP - Delivered Duty Paid</option>
+                <option value="N/A">N/A (Not Applicable)</option>
               </select>
               {errors.incoterm && <span className="text-sm text-destructive">{errors.incoterm.message}</span>}
             </div>
@@ -709,6 +705,7 @@ export const CommercialInvoiceForm = ({ invoice, onSave, orderId }: CommercialIn
                 <option value="COURIER">COURIER</option>
                 <option value="MULTIMODAL">MULTIMODAL</option>
                 <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
+                <option value="N/A">N/A (Not Applicable)</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>

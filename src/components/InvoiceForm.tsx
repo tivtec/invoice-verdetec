@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol, DEFAULT_PAYMENT_TERMS } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol, DEFAULT_PAYMENT_TERMS, DEFAULT_SALES_REPRESENTATIVE, normalizeRepresentativeName } from '@/types/invoice';
 import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber, getOrderById, getImporters, getProducts, ProductRecord } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
@@ -49,7 +49,7 @@ const invoiceSchema = z.object({
   clientRepresentative: z.string().min(1, 'Required field'),
   clientCompanyPosition: z.string().min(1, 'Required field'),
   currency: z.string().default('US$'),
-  clientPosition: z.string().default('Rafael Hermes'),
+  clientPosition: z.string().default(DEFAULT_SALES_REPRESENTATIVE),
   clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
   notes: z.string().optional(),
   invoiceNumber: z.string().optional(),
@@ -89,7 +89,10 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
-    defaultValues: invoice || {
+    defaultValues: invoice ? {
+      ...invoice,
+      clientPosition: normalizeRepresentativeName(invoice.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
+    } : {
       companyType: 'equipamentos',
       exporterAddressKey: undefined,
       incoterm: 'EXW',
@@ -100,7 +103,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       availability: '15 days',
       paymentMethod: DEFAULT_PAYMENT_TERMS,
       currency: 'US$',
-      clientPosition: 'Rafael Hermes',
+      clientPosition: DEFAULT_SALES_REPRESENTATIVE,
       clientPositionTitle: 'VERDETEC SALES MANAGER',
       notes: '',
     }
@@ -390,7 +393,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         placeOfDestination: data.placeOfDestination,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
-        clientPosition: data.clientPosition,
+        clientPosition: normalizeRepresentativeName(data.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
         clientPositionTitle: data.clientPositionTitle,
         notes: data.notes,
         showTotalWeight,
@@ -463,7 +466,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         placeOfDestination: data.placeOfDestination,
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
-        clientPosition: data.clientPosition,
+        clientPosition: normalizeRepresentativeName(data.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
         clientPositionTitle: data.clientPositionTitle,
         notes: data.notes,
         showTotalWeight,
@@ -516,7 +519,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     placeOfDestination: data.placeOfDestination,
     clientRepresentative: data.clientRepresentative,
     clientCompanyPosition: data.clientCompanyPosition,
-    clientPosition: data.clientPosition,
+    clientPosition: normalizeRepresentativeName(data.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
     clientPositionTitle: data.clientPositionTitle,
     notes: data.notes,
       showTotalWeight,
@@ -659,6 +662,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 <option value="DAP">DAP - Delivered at Place</option>
                 <option value="DPU">DPU - Delivered at Place Unloaded</option>
                 <option value="DDP">DDP - Delivered Duty Paid</option>
+                <option value="N/A">N/A (Not Applicable)</option>
               </select>
               {errors.incoterm && <span className="text-sm text-destructive">{errors.incoterm.message}</span>}
             </div>
@@ -672,6 +676,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
                 <option value="COURIER">COURIER</option>
                 <option value="MULTIMODAL">MULTIMODAL</option>
                 <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
+                <option value="N/A">N/A (Not Applicable)</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>

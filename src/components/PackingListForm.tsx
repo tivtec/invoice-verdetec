@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, DEFAULT_PAYMENT_TERMS } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, DEFAULT_PAYMENT_TERMS, normalizeRepresentativeName } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generatePackingListNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters, getInvoicesByOrderId } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -76,15 +76,10 @@ interface PackingListFormProps {
 export const PackingListForm = ({ invoice, onSave, orderId }: PackingListFormProps) => {
   const suggestedRepName = 'Caroline Franzen';
   const suggestedRepTitle = 'Verdetec Administrative Manager';
-  const normalizeRepName = (name?: string) => {
-    const trimmed = (name || '').trim();
-    if (!trimmed || trimmed === 'Rafael Hermes') return suggestedRepName;
-    return trimmed;
-  };
+  const normalizeRepName = (name?: string) => normalizeRepresentativeName(name, suggestedRepName);
   const normalizeRepTitle = (title?: string) => {
     const trimmed = (title || '').trim();
-    if (!trimmed || trimmed.toUpperCase() === 'VERDETEC SALES MANAGER') return suggestedRepTitle;
-    return trimmed;
+    return trimmed || suggestedRepTitle;
   };
 
   const { toast } = useToast();
@@ -319,8 +314,8 @@ Packing Specifications:`;
 
   const onSubmit = async (data: PackingFormData) => {
     try {
-      const repName = (data.clientPosition || '').trim() || 'Caroline Franzen';
-      const repTitle = (data.clientPositionTitle || '').trim() || 'Verdetec Administrative Manager';
+      const repName = normalizeRepName(data.clientPosition);
+      const repTitle = normalizeRepTitle(data.clientPositionTitle);
 
       const isNewInvoice = !invoice || invoice.documentType !== 'packing';
       const invoiceNumber = data.invoiceNumber || 
@@ -657,7 +652,10 @@ Packing Specifications:`;
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>INCOTERM *</Label>
-              <Input {...register('incoterm')} placeholder="Ex: EXW, FOB, CIF" />
+              <Input {...register('incoterm')} list="packing-incoterms" placeholder="Ex: EXW, FOB, CIF, N/A" />
+              <datalist id="packing-incoterms">
+                <option value="N/A">N/A (Not Applicable)</option>
+              </datalist>
               {errors.incoterm && <span className="text-sm text-destructive">{errors.incoterm.message}</span>}
             </div>
 
@@ -670,6 +668,7 @@ Packing Specifications:`;
                 <option value="COURIER">COURIER</option>
                 <option value="MULTIMODAL">MULTIMODAL</option>
                 <option value="To be arranged and paid by the importer">To be arranged and paid by the importer</option>
+                <option value="N/A">N/A (Not Applicable)</option>
               </select>
               {errors.modeOfTransport && <span className="text-sm text-destructive">{errors.modeOfTransport.message}</span>}
             </div>
