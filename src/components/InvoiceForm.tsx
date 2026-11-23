@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol, DEFAULT_PAYMENT_TERMS, DEFAULT_SALES_REPRESENTATIVE, normalizeRepresentativeName } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, CURRENCY_OPTIONS, getCurrencySymbol, DEFAULT_PAYMENT_TERMS, DEFAULT_SALES_REPRESENTATIVE, DEFAULT_SALES_REPRESENTATIVE_TITLE, normalizeRepresentativeName, normalizeRepresentativeTitle } from '@/types/invoice';
 import { generateInvoiceNumber, saveInvoice, getBaseNumber, createOrder, getOrderByBaseNumber, getOrderById, getImporters, getProducts, ProductRecord } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
 import { InvoicePrintPreview } from './InvoicePrintPreview';
@@ -50,7 +50,7 @@ const invoiceSchema = z.object({
   clientCompanyPosition: z.string().min(1, 'Required field'),
   currency: z.string().default('US$'),
   clientPosition: z.string().default(DEFAULT_SALES_REPRESENTATIVE),
-  clientPositionTitle: z.string().default('VERDETEC SALES MANAGER'),
+  clientPositionTitle: z.string().default(DEFAULT_SALES_REPRESENTATIVE_TITLE),
   notes: z.string().optional(),
   invoiceNumber: z.string().optional(),
 }).superRefine((data, ctx) => {
@@ -92,6 +92,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     defaultValues: invoice ? {
       ...invoice,
       clientPosition: normalizeRepresentativeName(invoice.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
+      clientPositionTitle: normalizeRepresentativeTitle(invoice.clientPositionTitle, DEFAULT_SALES_REPRESENTATIVE_TITLE),
     } : {
       companyType: 'equipamentos',
       exporterAddressKey: undefined,
@@ -104,7 +105,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
       paymentMethod: DEFAULT_PAYMENT_TERMS,
       currency: 'US$',
       clientPosition: DEFAULT_SALES_REPRESENTATIVE,
-      clientPositionTitle: 'VERDETEC SALES MANAGER',
+      clientPositionTitle: DEFAULT_SALES_REPRESENTATIVE_TITLE,
       notes: '',
     }
   });
@@ -394,7 +395,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
         clientPosition: normalizeRepresentativeName(data.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
-        clientPositionTitle: data.clientPositionTitle,
+        clientPositionTitle: normalizeRepresentativeTitle(data.clientPositionTitle, DEFAULT_SALES_REPRESENTATIVE_TITLE),
         notes: data.notes,
         showTotalWeight,
         packingWeight: totalPackingWeight,
@@ -467,7 +468,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
         clientRepresentative: data.clientRepresentative,
         clientCompanyPosition: data.clientCompanyPosition,
         clientPosition: normalizeRepresentativeName(data.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
-        clientPositionTitle: data.clientPositionTitle,
+        clientPositionTitle: normalizeRepresentativeTitle(data.clientPositionTitle, DEFAULT_SALES_REPRESENTATIVE_TITLE),
         notes: data.notes,
         showTotalWeight,
         packingWeight: totalPackingWeight,
@@ -520,7 +521,7 @@ export const InvoiceForm = ({ invoice, onSave, orderId }: InvoiceFormProps) => {
     clientRepresentative: data.clientRepresentative,
     clientCompanyPosition: data.clientCompanyPosition,
     clientPosition: normalizeRepresentativeName(data.clientPosition, DEFAULT_SALES_REPRESENTATIVE),
-    clientPositionTitle: data.clientPositionTitle,
+    clientPositionTitle: normalizeRepresentativeTitle(data.clientPositionTitle, DEFAULT_SALES_REPRESENTATIVE_TITLE),
     notes: data.notes,
       showTotalWeight,
       packingWeight: totalPackingWeight,

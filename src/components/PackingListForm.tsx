@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, DEFAULT_PAYMENT_TERMS, normalizeRepresentativeName } from '@/types/invoice';
+import { CompanyType, Invoice, InvoiceItem, COMPANY_DATA, getCompanyData, InsumosAddressKey, DEFAULT_PAYMENT_TERMS, normalizeRepresentativeName, normalizeRepresentativeTitle } from '@/types/invoice';
 import { saveInvoice as saveToLocalStorage, generatePackingListNumber } from '@/utils/invoiceStorage';
 import { saveInvoice, getOrderByBaseNumber, createOrder, getBaseNumber, getOrderById, getImporters, getInvoicesByOrderId } from '@/utils/supabaseStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -77,10 +77,7 @@ export const PackingListForm = ({ invoice, onSave, orderId }: PackingListFormPro
   const suggestedRepName = 'Caroline Franzen';
   const suggestedRepTitle = 'Verdetec Administrative Manager';
   const normalizeRepName = (name?: string) => normalizeRepresentativeName(name, suggestedRepName);
-  const normalizeRepTitle = (title?: string) => {
-    const trimmed = (title || '').trim();
-    return trimmed || suggestedRepTitle;
-  };
+  const normalizeRepTitle = (title?: string) => normalizeRepresentativeTitle(title, suggestedRepTitle);
 
   const { toast } = useToast();
   const [showPreview, setShowPreview] = useState(false);

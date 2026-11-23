@@ -27,11 +27,19 @@ export const getCurrencySymbol = (currency: string): string => {
 export const DEFAULT_PAYMENT_TERMS = '100% Advance by T/T or Letter of Credit (L/C).';
 
 export const DEFAULT_SALES_REPRESENTATIVE = 'Alexsandro Rodrigo Zaleski';
+export const DEFAULT_SALES_REPRESENTATIVE_TITLE = 'VERDETEC Representative';
 
 export const normalizeRepresentativeName = (name?: string, fallback = 'Caroline Franzen'): string => {
   const trimmed = (name || '').trim();
   return trimmed.toLowerCase() === 'rafael hermes'
     ? DEFAULT_SALES_REPRESENTATIVE
+    : trimmed || fallback;
+};
+
+export const normalizeRepresentativeTitle = (title?: string, fallback = 'Verdetec Administrative Manager'): string => {
+  const trimmed = (title || '').trim();
+  return trimmed.toUpperCase() === 'VERDETEC SALES MANAGER'
+    ? DEFAULT_SALES_REPRESENTATIVE_TITLE
     : trimmed || fallback;
 };
 

@@ -1,5 +1,5 @@
 import { MutableRefObject, Ref, useLayoutEffect, useRef, useState } from 'react';
-import { Invoice, InvoiceItem, getCompanyData, DEFAULT_SALES_REPRESENTATIVE, normalizeRepresentativeName } from '@/types/invoice';
+import { Invoice, InvoiceItem, getCompanyData, DEFAULT_SALES_REPRESENTATIVE, DEFAULT_SALES_REPRESENTATIVE_TITLE, normalizeRepresentativeName, normalizeRepresentativeTitle } from '@/types/invoice';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import verdetecLogo from '@/assets/verdetec-logo.png';
@@ -743,8 +743,9 @@ export const InvoicePrintPreview = ({ invoice, onBack }: InvoicePrintPreviewProp
     invoice.clientPosition,
     invoice.documentType === 'proforma' ? DEFAULT_SALES_REPRESENTATIVE : 'Caroline Franzen'
   );
-  const repTitle = (invoice.clientPositionTitle || '').trim() || (
-    invoice.documentType === 'proforma' ? 'VERDETEC SALES MANAGER' : 'Verdetec Administrative Manager'
+  const repTitle = normalizeRepresentativeTitle(
+    invoice.clientPositionTitle,
+    invoice.documentType === 'proforma' ? DEFAULT_SALES_REPRESENTATIVE_TITLE : 'Verdetec Administrative Manager'
   );
 
   const fitPageInnerRef = useRef<HTMLDivElement | null>(null);
